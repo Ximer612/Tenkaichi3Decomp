@@ -55,7 +55,8 @@
     X(MM_LOCK, "mm_lock") \
     X(MM_PIP, "mm_pip") \
     X(MM_PIP_OFF, "mm_pip_off") \
-    X(MM_BG_DUSK, "mm_bg_dusk")     /* the character select's mod grid */ \n    X(TBO_RADAR, "radar")                   /* the Dragon Radar of the search: its frames, 11 a row (src/menu/port_tbo.c Tb_Radar) */
+    X(MM_BG_DUSK, "mm_bg_dusk")     /* the character select's mod grid */ \
+    X(TBO_RADAR, "radar")                   /* the Dragon Radar of the search: its frames, 11 a row (src/menu/port_tbo.c Tb_Radar) */
 
 #define TBO_ART_ENUM(id, name) id,
 enum { TBO_ART_LIST(TBO_ART_ENUM) TBO_ART_COUNT };

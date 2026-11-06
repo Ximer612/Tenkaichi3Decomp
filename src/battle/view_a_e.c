@@ -881,14 +881,14 @@ void ChrGrid_Build(s32 *outCount, ChrGridCell *out, s32 *inCount, ChrGridCell *i
         while (n > 0 && out[n - 1].id == CHRGRID_ID_EMPTY) {
             n--;
         }
-        for (k = 0; k < Port_CharaCount() && n < 165 - CHRGRID_COLS; k++) {
-            int forms[CHRGRID_FORM_MAX], count = Port_CharaForms(PORT_CHARA_FIRST + k, forms, CHRGRID_FORM_MAX), f;
+        for (k = 0; k < Port_CharaCount() && n < PORT_GRID_CELLS - CHRGRID_COLS; k++) {
+            int forms[CHRGRID_FORM_MAX], count = Port_CharaForms(PORT_CHARA_ID(k), forms, CHRGRID_FORM_MAX), f;
             if (count < 0 && !(flags & CHRGRID_NO_FORMS)) {
                 continue; /* a form: under its character's cell */
             }
-            Port_CharaCellLog((int)n, PORT_CHARA_FIRST + (int)k, count < 1 ? 1 : count);
+            Port_CharaCellLog((int)n, PORT_CHARA_ID((int)k), count < 1 ? 1 : count);
             memset(&out[n], 0, sizeof(out[n]));
-            out[n].id = PORT_CHARA_FIRST + k;
+            out[n].id = PORT_CHARA_ID(k);
             if (count > 1 && !(flags & CHRGRID_NO_FORMS)) {
                 out[n].formCount = count;
                 for (f = 0; f < count; f++) {

@@ -152,7 +152,7 @@ typedef struct TeamSel {
     /* 0x09A8 */ s32 masterCount[TEAMSEL_SIDES]; /* cells in each side's grid */
     /* 0x09B0 */ TsCell *cells[TEAMSEL_SIDES]; /* each side's grid (first the master list of section 42) */
     /* 0x09B8 */ s32 cellCount[TEAMSEL_SIDES];
-    /* 0x09C0 */ TsCell grid[TEAMSEL_SIDES][TS_CELL_MAX];
+    /* 0x09C0 */ TsCell grid[TEAMSEL_SIDES][PORT_GRID_CELLS];
     /* 0x3828 */ s32 customCount[TEAMSEL_SIDES];
     /* 0x3830 */ TsCell custom[TEAMSEL_SIDES][TS_CUSTOM_MAX];
     /* 0x3C20 */ s32 rows[TEAMSEL_SIDES];   /* rows of each side's grid */

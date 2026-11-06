@@ -132,14 +132,14 @@ static const Chara *repl_of(int id) {
 
 /* the package behind a character id: an added character, or the replacement of a disc character; NULL if none */
 static const Chara *chara_of(int chara) {
-    if (chara >= PORT_CHARA_FIRST && chara < PORT_CHARA_FIRST + live()) {
-        return &sChara[chara - PORT_CHARA_FIRST];
+    if (PORT_CHARA_INDEX(chara) >= 0 && PORT_CHARA_INDEX(chara) < live()) {
+        return &sChara[PORT_CHARA_INDEX(chara)];
     }
     return repl_of(chara);
 }
 
 static int id_of(const Chara *c) {
-    return c->replaces >= 0 ? c->replaces : PORT_CHARA_FIRST + (int)(c - sChara);
+    return c->replaces >= 0 ? c->replaces : PORT_CHARA_ID((int)(c - sChara));
 }
 
 /* Changes whenever what the game's file numbers answer may have changed: with a session's start and end, and with
@@ -989,10 +989,10 @@ static void load(void) {
         resolve(&sRepl[i]);
     }
     if (sCount > 0) {
-        fprintf(stderr, "bt3: characters: %d added from %s\n", sCount, root);
+        fprintf(stderr, "bt3: characters: %d added from %s (BT3_ADDED_MAX=84)\n", sCount, root);
         for (i = 0; i < sCount; i++) {
             fprintf(stderr, "bt3: characters:   %s%s%s: id %d, %d costume%s, base character %d\n", sChara[i].owner, sChara[i].owner[0] != '\0' ? "/" : "",
-                    sChara[i].name, PORT_CHARA_FIRST + i, sChara[i].costumes, sChara[i].costumes == 1 ? "" : "s", sChara[i].base);
+                    sChara[i].name, PORT_CHARA_ID(i), sChara[i].costumes, sChara[i].costumes == 1 ? "" : "s", sChara[i].base);
         }
     }
     if (sReplCount > 0) {
@@ -1479,16 +1479,16 @@ const PortCharaPkg *Port_CharaPkg(int index) {
 
 int Port_CharaBase(int chara) {
     PortCharas_Init();
-    if (chara >= PORT_CHARA_FIRST && chara < PORT_CHARA_FIRST + live()) {
-        return sChara[chara - PORT_CHARA_FIRST].base;
+    if (PORT_CHARA_INDEX(chara) >= 0 && PORT_CHARA_INDEX(chara) < live()) {
+        return sChara[PORT_CHARA_INDEX(chara)].base;
     }
-    return chara >= PORT_CHARA_FIRST && chara < PORT_CHARA_FIRST + PORT_CHARA_MAX ? 0 : chara; /* (an id nothing is behind) */
+    return PORT_CHARA_INDEX(chara) >= 0 ? 0 : chara; /* (an id nothing is behind) */
 }
 
 /* An added character: the costumes its folder has; any other id: 0. */
 int Port_CharaCostumes(int chara) {
     PortCharas_Init();
-    return chara >= PORT_CHARA_FIRST && chara < PORT_CHARA_FIRST + live() ? sChara[chara - PORT_CHARA_FIRST].costumes : 0;
+    return PORT_CHARA_INDEX(chara) >= 0 && PORT_CHARA_INDEX(chara) < live() ? sChara[PORT_CHARA_INDEX(chara)].costumes : 0;
 }
 
 /* A number of a package's manifest (health, ki, blast) for character `chara`, an added one or a replaced one of
@@ -1879,7 +1879,7 @@ static int reached(int j) {
     int i, k;
     for (i = 0; i < live(); i++) {
         for (k = 0; k < 3; k++) {
-            if (i != j && sChara[i].target[k] == PORT_CHARA_FIRST + j) {
+            if (i != j && sChara[i].target[k] == PORT_CHARA_ID(j)) {
                 return 1;
             }
         }
@@ -1893,7 +1893,7 @@ static int closure(int head, int *out, int max) {
     out[n++] = head;
     for (at = 0; at < n; at++) {
         for (k = 0; k < 4; k++) {
-            int t = sChara[out[at]].target[k] - PORT_CHARA_FIRST;
+            int t = PORT_CHARA_INDEX(sChara[out[at]].target[k]);
             if (t < 0 || t >= live()) {
                 continue;
             }
@@ -1908,7 +1908,7 @@ static int closure(int head, int *out, int max) {
 }
 
 int Port_CharaForms(int chara, int *out, int max) {
-    int index = chara - PORT_CHARA_FIRST, group[PORT_CHARA_MAX], n, i, head = -1, lowest = PORT_CHARA_MAX;
+    int index = PORT_CHARA_INDEX(chara), group[PORT_CHARA_MAX], n, i, head = -1, lowest = PORT_CHARA_MAX;
     PortCharas_Init();
     if (index < 0 || index >= live() || max < 1) {
         return 0;
@@ -1944,7 +1944,7 @@ int Port_CharaForms(int chara, int *out, int max) {
     }
     n = closure(index, group, max < PORT_CHARA_MAX ? max : PORT_CHARA_MAX);
     for (i = 0; i < n; i++) {
-        out[i] = PORT_CHARA_FIRST + group[i];
+        out[i] = PORT_CHARA_ID(group[i]);
     }
     return n;
 }
@@ -1959,7 +1959,7 @@ void *Port_CharaChipLoad(int index) {
 }
 
 void *Port_CharaChip(int chara) {
-    int index = chara - PORT_CHARA_FIRST;
+    int index = PORT_CHARA_INDEX(chara);
     return index >= 0 && index < live() && sChipHave[index] ? sChip[index] : NULL;
 }
 
@@ -2053,7 +2053,7 @@ void PortChips_Load(void *pack) {
 }
 
 void *PortChips_Get(int chara) {
-    int index = chara - PORT_CHARA_FIRST;
+    int index = PORT_CHARA_INDEX(chara);
     return index >= 0 && index < live() ? sChipRes[index] : NULL;
 }
 
@@ -2155,12 +2155,12 @@ void *Port_CharaFormPack(void *pack) {
 }
 
 int Port_CharaFormLine(int chara) {
-    int index = chara - PORT_CHARA_FIRST;
+    int index = PORT_CHARA_INDEX(chara);
     return sFormFirst >= 0 && index >= 0 && index < live() ? sFormFirst + index : Port_CharaBase(chara);
 }
 
 int Port_CharaNameLine(int chara) {
-    int index = chara - PORT_CHARA_FIRST;
+    int index = PORT_CHARA_INDEX(chara);
     return sNameFirst >= 0 && index >= 0 && index < live() ? sNameFirst + index : Port_CharaBase(chara);
 }
 
@@ -2191,5 +2191,5 @@ int Port_TestCellIs(int id) {
     if (e != NULL && strncmp(e, "disc:", 5) == 0) {
         return number(e + 5, 0, DISC_CHARAS - 1, &want) && id == want;
     }
-    return id >= PORT_CHARA_FIRST && id < PORT_CHARA_FIRST + PORT_CHARA_MAX;
+    return PORT_CHARA_INDEX(id) >= 0;
 }

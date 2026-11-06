@@ -171,7 +171,7 @@ typedef struct CharSel {
     /* 0x0558 */ s32 masterCount[CHARSEL_SIDES]; /* cells in the master grid */
     /* 0x0560 */ MChrCell *cells[CHARSEL_SIDES]; /* each side's grid (first the master list of section 42) */
     /* 0x0568 */ s32 cellCount[CHARSEL_SIDES];
-    /* 0x0570 */ MChrCell grid[CHARSEL_SIDES][MCHR_CELL_MAX];
+    /* 0x0570 */ MChrCell grid[CHARSEL_SIDES][PORT_GRID_CELLS];
     /* 0x33D8 */ s32 customCount[CHARSEL_SIDES];
     /* 0x33E0 */ MChrCell custom[CHARSEL_SIDES][MCHR_CUSTOM_MAX];
     /* 0x37D0 */ s32 rows[CHARSEL_SIDES];   /* rows of each side's grid */

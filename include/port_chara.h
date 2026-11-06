@@ -23,36 +23,54 @@
    must not be taken for added characters. Below 0xFF, which is "none" in the packs' byte-sized form tables. (Every
    character id in the game's state, the save and the menus is 32 bits wide; the unlock bits are never asked about
    an added character.) */
+#ifndef PORT_CHARA_IDS
+#define PORT_CHARA_IDS
+/* Added character n has id 0xC6 + n up to 0xFE, then 0xA5 + (n - 57) up to 0xBF: 84 in all. 0xC0 has no bit in the
+   unlock field and 0xC1..0xC5 are the props' (see include/port_chara.h). */
 #define PORT_CHARA_FIRST 0xC6
-#define PORT_CHARA_MAX 57
+#define PORT_CHARA_HIGH_MAX 57
+#define PORT_CHARA_LOW_FIRST 0xA5
+#define PORT_CHARA_MAX 84
+static inline int PORT_CHARA_INDEX(int c) {
+    return c >= PORT_CHARA_FIRST && c < PORT_CHARA_FIRST + PORT_CHARA_HIGH_MAX ? c - PORT_CHARA_FIRST
+         : c >= PORT_CHARA_LOW_FIRST && c < PORT_CHARA_LOW_FIRST + PORT_CHARA_MAX - PORT_CHARA_HIGH_MAX ? c - PORT_CHARA_LOW_FIRST + PORT_CHARA_HIGH_MAX
+         : -1;
+}
+static inline int PORT_CHARA_ID(int n) {
+    return n < PORT_CHARA_HIGH_MAX ? PORT_CHARA_FIRST + n : PORT_CHARA_LOW_FIRST + n - PORT_CHARA_HIGH_MAX;
+}
+#endif
+/* A screen's grid: 98 of the disc's cells, 84 added, a filler row. Not MCHR_CELL_MAX and its like: those also count the
+   chip packs' 165 entries. */
+#define PORT_GRID_CELLS 196
 #define PORT_CHARA_FILE0 (0xD48 + 71000)           /* ten files per added character, as on the disc */
 #define PORT_CHARA_VOICE0 (0xD48 + 72000)          /* two per added character: the voice bank, and the other language's */
-#define PORT_CHARA_ADDED(c) ((s32)(c) >= PORT_CHARA_FIRST && (s32)(c) < PORT_CHARA_FIRST + PORT_CHARA_MAX)
+#define PORT_CHARA_ADDED(c) (PORT_CHARA_INDEX((s32)(c)) >= 0)
 extern int Port_CharaBase(int chara); /* an added character's base character; any other id as it is */
 /* the character id for the tables and the streamed lines */
 #define CHARA_T(c) (PORT_CHARA_ADDED(c) ? Port_CharaBase(c) : (s32)(c))
 /* `id * 10` of the model rule: CHARA_FILE10(c) + 0x590 + n is file n of the character */
-#define CHARA_FILE10(c) (PORT_CHARA_ADDED(c) ? PORT_CHARA_FILE0 - 0x590 + ((s32)(c) - PORT_CHARA_FIRST) * 10 : (s32)(c) * 10)
+#define CHARA_FILE10(c) (PORT_CHARA_ADDED(c) ? PORT_CHARA_FILE0 - 0x590 + PORT_CHARA_INDEX((s32)(c)) * 10 : (s32)(c) * 10)
 /* the character a model file belongs to (the battle takes an object's character from its file id) */
 #define CHARA_FROM_FILE(id) \
-    ((id) >= PORT_CHARA_FILE0 && (id) < PORT_CHARA_FILE0 + PORT_CHARA_MAX * 10 ? PORT_CHARA_FIRST + ((id) - PORT_CHARA_FILE0) / 10 : ((id) - 0x590) / 10)
+    ((id) >= PORT_CHARA_FILE0 && (id) < PORT_CHARA_FILE0 + PORT_CHARA_MAX * 10 ? PORT_CHARA_ID(((id) - PORT_CHARA_FILE0) / 10) : ((id) - 0x590) / 10)
 /* the voice bank: `base` is one of the two languages' first file ids, `alt` says whether it is the second */
-#define CHARA_VOICE_FILE(c, base, alt) (PORT_CHARA_ADDED(c) ? PORT_CHARA_VOICE0 + ((s32)(c) - PORT_CHARA_FIRST) * 2 + ((alt) ? 1 : 0) : (s32)(c) + (base))
+#define CHARA_VOICE_FILE(c, base, alt) (PORT_CHARA_ADDED(c) ? PORT_CHARA_VOICE0 + PORT_CHARA_INDEX((s32)(c)) * 2 + ((alt) ? 1 : 0) : (s32)(c) + (base))
 /* the large picture of the menus: 0x2F9 + id on the disc; an added character's own file, answered from its folder
    (`portrait.bin`) or with its base character's */
-#define PORT_CHARA_FACE0 (0xD48 + 90000) /* (73000 is the added songs'; the spoken lines run from 74000 to 85400) */
+#define PORT_CHARA_FACE0 (0xD48 + 92000) /* (73000 is the added songs'; the spoken lines run from 74000 to 90800) */
 /* The member block of the fight (0x1000 bytes a side: the small picture of a team mate in the fight's display):
    the disc's file 8 + id * 2 + side; an added character's is served from its folder (`member_1p.bin`,
    `member_2p.bin`) or is its base character's. */
-#define PORT_CHARA_MEMBER0 (0xD48 + 91000)
+#define PORT_CHARA_MEMBER0 (0xD48 + 93000)
 #define CHARA_MEMBER_FILE(c, side) \
-    (PORT_CHARA_ADDED(c) ? PORT_CHARA_MEMBER0 + ((s32)(c) - PORT_CHARA_FIRST) * 2 + (side) : (s32)(c) * 2 + (side) + 8)
-#define CHARA_FACE_FILE(c) (PORT_CHARA_ADDED(c) ? PORT_CHARA_FACE0 + ((s32)(c) - PORT_CHARA_FIRST) : (s32)(c) + 0x2F9)
+    (PORT_CHARA_ADDED(c) ? PORT_CHARA_MEMBER0 + PORT_CHARA_INDEX((s32)(c)) * 2 + (side) : (s32)(c) * 2 + (side) + 8)
+#define CHARA_FACE_FILE(c) (PORT_CHARA_ADDED(c) ? PORT_CHARA_FACE0 + PORT_CHARA_INDEX((s32)(c)) : (s32)(c) + 0x2F9)
 /* a spoken line (a sound stream): `base + id * 100 + line` on the disc, two sets (`alt` the second); an added
    character's own, answered from its folder (voice_us/NNN.adx, voice_jp/NNN.adx) or with its base character's */
 #define PORT_CHARA_LINE0 (0xD48 + 74000)
 #define CHARA_LINE_FILE(c, base, alt, line) \
-    (PORT_CHARA_ADDED(c) ? PORT_CHARA_LINE0 + ((s32)(c) - PORT_CHARA_FIRST) * 200 + ((alt) ? 100 : 0) + (line) : (base) + ((s32)(c) * 100 + (line)))
+    (PORT_CHARA_ADDED(c) ? PORT_CHARA_LINE0 + PORT_CHARA_INDEX((s32)(c)) * 200 + ((alt) ? 100 : 0) + (line) : (base) + ((s32)(c) * 100 + (line)))
 /* For the screens with a roster (the same in each): an added character's own chip, name and number of item sets.
    PORT_CHIP: the texture list of a chip (`pack` = the screen's chip pack); the screen calls PortChips_Load(pack) after
    it has made the disc's chips ready and PortChips_Free() when it ends. PORT_NAME_LINE: the line of a name in the
@@ -94,6 +112,7 @@ extern int Port_CharaPool(void);
 #define PORT_CELL_IN(n, count) ((s32)(n) >= 0 && (s32)(n) < (s32)(count))
 #define PORT_SAVE_CHARA(c) (PORT_CHARA_ADDED(c) ? CHARA_T(c) : (s32)(c))
 #else
+#define PORT_GRID_CELLS 165
 #define PORT_CHARA_ADDED(c) (0)
 #define PORT_STAT(c, which, v) (v)
 #define PORT_CHIP(pack, id) ((void *)MPACK_AT(pack, (id) + 1))

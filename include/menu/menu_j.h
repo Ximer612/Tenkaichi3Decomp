@@ -173,7 +173,7 @@ typedef struct ESel {
     /* 0x03C8 */ s32 gridCount;
     /* 0x03CC */ ESelCell *grid;
     /* 0x03D0 */ s32 gridOutCount;
-    /* 0x03D4 */ ESelCell gridBuf[ESEL_CELL_MAX];
+    /* 0x03D4 */ ESelCell gridBuf[PORT_GRID_CELLS];
     /* 0x1B08 */ s32 rows;           /* grid rows */
     /* 0x1B0C */ s32 customCount;    /* item-set plates that can be chosen: 4, or 1 with ESEL_NO_CUSTOM */
     /* 0x1B10 */ s32 colorCount;     /* costumes of the character */

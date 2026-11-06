@@ -190,6 +190,7 @@ void Bracket_SetupDraw(Bracket *b) {
             s32 chara = BK_ENT(BK_MATCH.ent[i]).chara;
             s32 cols = 5;
             s32 plate;
+            s32 shared = 0; /* a line number below, not a character: 0xA5.. may be added characters */
 
             if (BK_ENT(BK_MATCH.ent[i]).flags & TOUR_ENT_REC) {
                 chara = 0xA3;
@@ -199,19 +200,21 @@ void Bracket_SetupDraw(Bracket *b) {
                 case 0x16:
                 case 0x17:
                     chara = 0xA7;
+                    shared = 1;
                     break;
                 case 0x3A:
                 case 0x3B:
                     chara = 0xA5;
+                    shared = 1;
                     break;
                 }
             }
             Flash_FindLabel(flash, NULL, i ? "mc_name_text_r" : "mc_name_text_l", &ref);
             /* (PC build: an added character's own name line, after the screen's own, which go up to 0xA7; its form
                line is its base character's) */
-            TextBox_AttachLine(flash, &ref, 0, 0, PORT_NAME_LINE(chara), &b->nameBox[i]);
+            TextBox_AttachLine(flash, &ref, 0, 0, shared ? chara : PORT_NAME_LINE(chara), &b->nameBox[i]);
             Flash_FindLabel(flash, NULL, i ? "mc_form_text_r" : "mc_form_text_l", &ref);
-            TextBox_AttachLine(flash, &ref, 0, 0, PORT_FORM_LINE(chara), &b->formBox[i]);
+            TextBox_AttachLine(flash, &ref, 0, 0, shared ? chara : PORT_FORM_LINE(chara), &b->formBox[i]);
             if (BK_ENT(BK_MATCH.ent[i]).flags & TOUR_ENT_PLAYER) {
                 uv.x0 = (BK_ENT(BK_MATCH.ent[i]).player % cols) * 0x60;
                 uv.y0 = (BK_ENT(BK_MATCH.ent[i]).player / cols) * 0x40;
