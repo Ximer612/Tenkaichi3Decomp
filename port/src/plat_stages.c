@@ -275,6 +275,14 @@ void PortStages_Init(void) {
     }
 }
 
+/* The folder read again (the Mod Manager switched stages on or off, or added some); from the menus only. */
+void PortStages_Reload(void) {
+    gPortExtraStageCount = 0;
+    sAliasCount = 0;
+    sDone = 0;
+    PortStages_Init();
+}
+
 int PortStages_Count(void) {
     return gPortExtraStageCount;
 }

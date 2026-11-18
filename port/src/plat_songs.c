@@ -181,6 +181,14 @@ static void collect(void) {
     }
 }
 
+/* The folder read again (the Mod Manager switched songs on or off, or added some); from the menus only. */
+void PortSongs_Reload(void) {
+    gPortSongCount = 0;
+    sAliasCount = 0;
+    sDone = 0;
+    PortSongs_Init();
+}
+
 void PortSongs_Init(void) {
     if (sDone) {
         return;
