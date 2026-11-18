@@ -110,6 +110,7 @@ typedef struct PortCharaDesc {
     int labelSet;
     int replaces;      /* the disc character it replaces; -1 it adds one */
     int base;          /* the disc character it stands on (a replacement: the one it replaces) */
+    int baseSet;       /* 0: the package names no fighter (no base, no replaces): `base` is 0 only as a stand-in */
     int costumes;      /* model files in a row from the first */
     int files;         /* bit k: file k of the twelve (0..3 costumes, 4..7 damaged, 8 animations, 9 effects, 10 / 11 the
                           voice banks), and PORT_DESC_PORTRAIT, _CHIP, _MEMBER, _LINES */
@@ -121,6 +122,7 @@ typedef struct PortCharaDesc {
 int PortCharas_Describe(const char *folder, PortCharaDesc *out);
 int PortCharas_DescribeForm(const char *folder, const char *form, PortCharaDesc *out); /* a form of it (PortCharas_Forms) */
 int PortCharas_DescribePath(const char *path, PortCharaDesc *out); /* a folder anywhere (the browser's) */
+int PortCharas_DescribeFamily(const char *folder, PortCharaDesc *own, char (*names)[128], PortCharaDesc *forms, int max); /* a package and its forms; any thread */
 /* the folders of `characters` in the order they are used (the load order's, then the others by name), each on or not */
 int PortCharas_OrderGet(char (*folder)[128], unsigned char *on, int max);
 /* the Mod Manager's preview: the folder at path answers for disc character as's files until changed (NULL / -1: none) */

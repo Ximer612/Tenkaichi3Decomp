@@ -71,6 +71,7 @@ typedef struct {
     int nameSet;               /* a name was given (a replacement without one keeps the disc's line) */
     char label[96];            /* the form's label under the name ("Super Saiyan") */
     int labelSet;              /* a label was given (an empty one: no label); without, the base's label */
+    int baseSet;               /* base was given (or base.txt, or the owner's): without, base 0 stands in for it */
     int stat[PORT_STAT_COUNT]; /* health, ki, blast stocks: -1 not said */
     int pkg;                   /* its entry in sPkg, or -1 */
     short par[PAR_COUNT];      /* bytes of the parameter block from 0x98 (PAR_*): -1 not said */
@@ -98,8 +99,8 @@ static int sInit;
 static int sReloads;                 /* how many times the folder was read again (PortCharas_Reload) */
 static int sModelSize;               /* Port_ModelSize's answer, 0 until asked (again after a reload) */
 static int sPreviews;                /* how many times the Mod Manager's preview changed (PortCharas_Preview) */
-static int sDry;                     /* scan() only describes a folder (PortCharas_Describe): nothing is kept */
-static char sDryNote[400];           /* ... and what it found wrong is put here */
+static __thread int sDry;            /* (per thread: gs/modmgr.c reads the library on several) scan() only describes a folder (PortCharas_Describe): nothing is kept */
+static __thread char sDryNote[400];           /* ... and what it found wrong is put here */
 static int pkg_dir(const char *folder, char *out, size_t size);
 
 /* The load order (`load_order.txt` in the characters folder, written by the Mod Manager): which folders are used
@@ -345,6 +346,7 @@ static void apply(Chara *c, const char *key, const char *value) {
     } else if (strcmp(key, "base") == 0) {
         if (number(value, 0, DISC_CHARAS - 1, &x)) {
             c->base = x;
+            c->baseSet = 1;
         } else {
             note(c, "base has no character id from 0 to 160; 0 is used");
             c->base = 0;
@@ -577,9 +579,9 @@ static int chip_read(const char *path, unsigned char *out) {
    replacements when its manifest says `replaces`. `owner`: NULL, or the package whose folder `root` is (what the
    folder's own files do not say about base and name is the owner's). Returns the kept package, NULL if none. */
 static Chara *scan(const char *root, const char *name, const Chara *owner) {
-    static Chara t;
-    static char text[TEXT_MAX];
-    static unsigned char chip[CHIP_SIZE];
+    static __thread Chara t;
+    static __thread char text[TEXT_MAX];
+    static __thread unsigned char chip[CHIP_SIZE];
     char path[400], side[5][400]; /* name.txt, form.txt, base.txt, forms.txt, character.txt */
     static const char *const kSide[5] = {"name.txt", "form.txt", "base.txt", "forms.txt", "character.txt"};
     Chara *c = &t, *kept;
@@ -609,6 +611,7 @@ static Chara *scan(const char *root, const char *name, const Chara *owner) {
         snprintf(c->owner, sizeof(c->owner), "%s", owner->name);
         c->ownerId = id_of(owner);
         c->base = owner->base;
+        c->baseSet = owner->baseSet;
     }
     snprintf(c->shown, sizeof(c->shown), "%s", owner != NULL ? owner->shown : name);
     while ((de = readdir(d)) != NULL) {
@@ -1093,7 +1096,7 @@ int PortCharas_Describe(const char *folder, PortCharaDesc *out) {
 /* The folders inside package `folder` that are packages themselves (its forms), by name, as load() reads them;
    how many. */
 int PortCharas_Forms(const char *folder, char (*names)[128], int max) {
-    static char inner[64][128];
+    static __thread char inner[64][128];
     char dir[400];
     PortCharaDesc d;
     int m, k, n = 0;
@@ -1113,7 +1116,7 @@ int PortCharas_Forms(const char *folder, char (*names)[128], int max) {
 /* A form of package `folder` (a folder inside it), read as load() reads it: with the package as its owner (what
    the form's own files do not say about its base and name is the package's). */
 int PortCharas_DescribeForm(const char *folder, const char *form, PortCharaDesc *out) {
-    static Chara own;
+    static __thread Chara own;
     char root[300], dir[400];
     const Chara *c;
 
@@ -1135,6 +1138,43 @@ int PortCharas_DescribeForm(const char *folder, const char *form, PortCharaDesc 
 }
 
 /* The same for a folder anywhere (the Mod Manager's browser, before the folder is added). */
+/* A package and its forms at once, each folder read once (for the whole library: PortCharas_Describe and
+   PortCharas_DescribeForm read the owner again for every form). Any thread. Its forms' names and what each is into
+   names / forms, `max` at most; how many, -1 if `folder` is no package. */
+int PortCharas_DescribeFamily(const char *folder, PortCharaDesc *own, char (*names)[128], PortCharaDesc *forms, int max) {
+    static __thread Chara owner;
+    static __thread char inner[64][128];
+    char root[300], dir[400];
+    const Chara *c;
+    int m, k, n = 0;
+
+    memset(own, 0, sizeof(*own));
+    own->replaces = -1;
+    if (strchr(folder, '/') != NULL || !pkg_dir(folder, dir, sizeof(dir)) || !PortCharas_Root(root, sizeof(root)) || !describe(root, folder, NULL, own)) {
+        return -1;
+    }
+    m = folders(dir, inner, 64, 1);
+    if (m == 0) {
+        return 0;
+    }
+    sDryNote[0] = '\0';
+    sDry = 1;
+    c = scan(root, folder, NULL);
+    sDry = 0;
+    if (c == NULL) {
+        return 0;
+    }
+    owner = *c; /* (scan keeps its result in one place: the owner is copied before a form is read) */
+    for (k = 0; k < m && n < max; k++) {
+        memset(&forms[n], 0, sizeof(forms[n]));
+        forms[n].replaces = -1;
+        if (describe(dir, inner[k], &owner, &forms[n])) {
+            snprintf(names[n++], 128, "%s", inner[k]);
+        }
+    }
+    return n;
+}
+
 int PortCharas_DescribePath(const char *path, PortCharaDesc *out) {
     char root[400];
     const char *slash = strrchr(path, '/');
@@ -1172,6 +1212,7 @@ static int describe(const char *root, const char *folder, const Chara *owner, Po
     out->labelSet = c->labelSet;
     out->replaces = c->replaces;
     out->base = c->replaces >= 0 ? c->replaces : c->base;
+    out->baseSet = c->replaces >= 0 || c->baseSet;
     for (k = 0; k < F_COUNT; k++) {
         if (c->file[k][0] != '\0') {
             out->files |= 1 << k;
@@ -1361,7 +1402,7 @@ int PortCharas_ManifestSet(const char *folder, const char *key, const char *valu
 
 /* A key of a package's character.txt as it is written there (the last line that says it); "" and 0 if none. */
 int PortCharas_ManifestGet(const char *folder, const char *key, char *out, unsigned size) {
-    static char text[TEXT_MAX];
+    static __thread char text[TEXT_MAX];
     char dir[400], path[420];
     size_t klen = strlen(key);
     long len;
