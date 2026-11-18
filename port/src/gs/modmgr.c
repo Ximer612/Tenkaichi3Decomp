@@ -35,6 +35,13 @@ typedef uint16_t u16;
 typedef uint32_t u32;
 #include "../../../include/menu/port_mods.h"
 #include "../../include/plat_charas.h"
+#include "../../include/plat_discimport.h"
+#include "../../include/plat_charedit.h"
+#include "../../include/plat_modelimport.h"
+extern const char *Port_FileRoot(void); /* plat_file.c */
+const char *PortStages_Dir(void);
+const char *PortSongs_Dir(void);
+extern void Port_ExTouched(void); /* modtools.c */
 
 extern int Port_NetSession(void);                /* gs/net.c */
 extern char *PortTbo_FighterName(s32 chara);     /* src/menu/port_tbo.c */
@@ -52,6 +59,8 @@ typedef struct {
     int on;
     int place;   /* its place in the order of use (load order), 0 first */
     int form;    /* a form: on, off and its place are its package's */
+    char frame[64], square[64]; /* its manifest's portrait_frame and chip_square, "" none: read with it, not at each look */
+    long added;  /* when its folder was made (Windows: creation time), for the "newest added" order */
 } Pkg;
 
 static Pkg sLib[LIB_MAX];
@@ -79,8 +88,8 @@ static long folder_stamp(void) {
         return 0;
     }
     while ((e = readdir(d)) != NULL) {
-        if (e->d_name[0] == '.') {
-            continue;
+        if (e->d_name[0] == '.' || strncmp(e->d_name, "load_order", 10) == 0) {
+            continue; /* (the manager's own switches are not a change from outside) */
         }
         snprintf(path, sizeof(path), "%s/%s", root, e->d_name);
         if (stat(path, &st) == 0) {
@@ -92,40 +101,111 @@ static long folder_stamp(void) {
     return stamp;
 }
 
-/* The folders and what each is: every folder directly in `characters` that is a package, by name. */
-static void lib_read(void) {
-    static char order[LIB_MAX][128];
-    static unsigned char on[LIB_MAX];
-    int n = PortCharas_OrderGet(order, on, LIB_MAX), i, k;
+/* The order of use as the manager has it: read with the library, changed in memory, written at once (order_put). */
+static char sOrd[LIB_MAX][128];
+static unsigned char sOrdOn[LIB_MAX];
+static int sOrdN;
+static int sReloadDue;   /* the switches changed: the game's own list of characters is read again when it is needed */
+static int sBatch;       /* many switches in a row: the order is written after the last (Port_ModBatch) */
+static int sSkinOf[LIB_MAX], sSkinsKnown;
 
-    sLibCount = 0;
-    for (i = 0; i < n && sLibCount < LIB_MAX; i++) {
-        Pkg *p = &sLib[sLibCount];
-        if (strlen(order[i]) >= sizeof(p->folder) || !PortCharas_Describe(order[i], &p->d)) {
-            continue;
-        }
-        snprintf(p->folder, sizeof(p->folder), "%s", order[i]);
-        p->on = on[i];
-        p->place = i;
-        p->form = 0;
-        sLibCount++;
-        {   /* its forms (the folders inside it that are packages: added characters of their own, as the game reads
-               them), each an entry of its own after it */
-            static char forms[64][128];
-            int m = PortCharas_Forms(order[i], forms, 64), f;
-            for (f = 0; f < m && sLibCount < LIB_MAX; f++) {
-                Pkg *q = &sLib[sLibCount];
-                if (strlen(order[i]) + 1 + strlen(forms[f]) >= sizeof(q->folder) || !PortCharas_DescribeForm(order[i], forms[f], &q->d)) {
-                    continue;
-                }
-                snprintf(q->folder, sizeof(q->folder), "%s/%s", order[i], forms[f]);
-                q->on = on[i];
-                q->place = i;
-                q->form = 1;
-                sLibCount++;
+/* One folder of the library: it and its forms, read on whichever thread comes to it. */
+typedef struct {
+    Pkg *pkg;
+    int n;
+} LibJob;
+static LibJob *sLibJobs;
+static SDL_AtomicInt sLibNext;
+
+static void pkg_extras(Pkg *p) {
+    PortCharas_ManifestGet(p->folder, "portrait_frame", p->frame, sizeof(p->frame));
+    PortCharas_ManifestGet(p->folder, "chip_square", p->square, sizeof(p->square));
+    {
+        char root[300], path[460];
+        struct stat st;
+        if (PortCharas_Root(root, sizeof(root))) {
+            snprintf(path, sizeof(path), "%s/%s", root, p->folder);
+            if (stat(path, &st) == 0) {
+                p->added = (long)st.st_ctime; /* (mingw: creation time; elsewhere inode change, still moves up on import) */
             }
         }
     }
+}
+
+static int lib_worker(void *unused) {
+    static __thread char forms[64][128];
+    static __thread PortCharaDesc form[64];
+    static __thread PortCharaDesc own;
+    (void)unused;
+    for (;;) {
+        int i = SDL_AddAtomicInt(&sLibNext, 1), m, f;
+        LibJob *job;
+        Pkg *p;
+        if (i >= sOrdN) {
+            return 0;
+        }
+        job = &sLibJobs[i];
+        if (strlen(sOrd[i]) >= sizeof(p->folder) || (m = PortCharas_DescribeFamily(sOrd[i], &own, forms, form, 64)) < 0 ||
+            (job->pkg = calloc((size_t)m + 1, sizeof(Pkg))) == NULL) {
+            continue;
+        }
+        p = &job->pkg[0];
+        p->d = own;
+        snprintf(p->folder, sizeof(p->folder), "%s", sOrd[i]);
+        p->on = sOrdOn[i];
+        p->place = i;
+        pkg_extras(p);
+        job->n = 1;
+        /* its forms (the folders inside it that are packages: added characters of their own, as the game reads
+           them), each an entry of its own after it */
+        for (f = 0; f < m; f++) {
+            Pkg *q = &job->pkg[job->n];
+            if (strlen(sOrd[i]) + 1 + strlen(forms[f]) >= sizeof(q->folder)) {
+                continue;
+            }
+            q->d = form[f];
+            snprintf(q->folder, sizeof(q->folder), "%s/%s", sOrd[i], forms[f]);
+            q->on = sOrdOn[i];
+            q->place = i;
+            q->form = 1;
+            pkg_extras(q);
+            job->n++;
+        }
+    }
+}
+
+/* The folders and what each is: every folder directly in `characters` that is a package, by name. A library of
+   hundreds is thousands of files looked at (seconds on a hard disk), and most of it is waiting for the disk: the
+   folders are read by several threads, and put together here in the order of use. */
+static void lib_read(void) {
+    enum { WORKERS = 8 };
+    SDL_Thread *threads[WORKERS];
+    int i, k, cores = SDL_GetNumLogicalCPUCores(), extra = (cores < WORKERS ? cores : WORKERS) - 1, made = 0;
+
+    sOrdN = PortCharas_OrderGet(sOrd, sOrdOn, LIB_MAX);
+    sLibCount = 0;
+    sSkinsKnown = 0;
+    if ((sLibJobs = calloc((size_t)sOrdN + 1, sizeof(LibJob))) == NULL) {
+        return;
+    }
+    SDL_SetAtomicInt(&sLibNext, 0);
+    for (i = 0; i < extra && sOrdN > 4; i++) {
+        if ((threads[made] = SDL_CreateThread(lib_worker, "bt3 library", NULL)) != NULL) {
+            made++;
+        }
+    }
+    lib_worker(NULL); /* (this thread too: without any other it does it all) */
+    for (i = 0; i < made; i++) {
+        SDL_WaitThread(threads[i], NULL);
+    }
+    for (i = 0; i < sOrdN; i++) {
+        for (k = 0; k < sLibJobs[i].n && sLibCount < LIB_MAX; k++) {
+            sLib[sLibCount++] = sLibJobs[i].pkg[k];
+        }
+        free(sLibJobs[i].pkg);
+    }
+    free(sLibJobs);
+    sLibJobs = NULL;
     qsort(sLib, (size_t)sLibCount, sizeof(Pkg), name_cmp);
     for (k = 0; k < 3; k++) {
         sChipEdit[k] = 0;
@@ -145,22 +225,21 @@ static int valid(int i) {
     return i >= 0 && i < sLibCount && !Port_NetSession();
 }
 
-/* Writes the order of use with folder `at` moved to `to` (0 first; -1 where it is) and switched `on` (-1 as it is),
-   then reads the packages again. */
+/* The order of use with folder `whole` moved to `to` (0 first; -1 where it is) and switched `on` (-1 as it is): in
+   the manager's list at once, in load_order.txt (a line per folder: nothing to wait for). The game's own list of
+   characters follows when it is needed (Port_ModFlush): reading it all takes a second or more, for each switch. */
 static void order_put(const char *whole, int to, int on) {
-    static char order[LIB_MAX][128];
-    static unsigned char ons[LIB_MAX];
-    int n = PortCharas_OrderGet(order, ons, LIB_MAX), i, from = -1;
+    int i, from = -1;
     char keep[128], folder[128];
     unsigned char keepOn;
 
+    ensure();
     snprintf(folder, sizeof(folder), "%s", whole);
     if (strchr(folder, '/') != NULL) {
         *strchr(folder, '/') = '\0'; /* (a form: its package is what is in the order) */
     }
-
-    for (i = 0; i < n; i++) {
-        if (strcmp(order[i], folder) == 0) {
+    for (i = 0; i < sOrdN; i++) {
+        if (strcmp(sOrd[i], folder) == 0) {
             from = i;
         }
     }
@@ -168,27 +247,64 @@ static void order_put(const char *whole, int to, int on) {
         return;
     }
     if (on >= 0) {
-        ons[from] = (unsigned char)(on != 0);
+        sOrdOn[from] = (unsigned char)(on != 0);
     }
-    if (to >= 0 && to < n && to != from) {
-        snprintf(keep, sizeof(keep), "%s", order[from]);
-        keepOn = ons[from];
+    if (to < 0 || to >= sOrdN) {
+        to = from;
+    }
+    if (to != from) {
+        snprintf(keep, sizeof(keep), "%s", sOrd[from]);
+        keepOn = sOrdOn[from];
         if (to < from) {
-            memmove(order[to + 1], order[to], (size_t)(from - to) * sizeof(order[0]));
-            memmove(ons + to + 1, ons + to, (size_t)(from - to));
+            memmove(sOrd[to + 1], sOrd[to], (size_t)(from - to) * sizeof(sOrd[0]));
+            memmove(sOrdOn + to + 1, sOrdOn + to, (size_t)(from - to));
         } else {
-            memmove(order[from], order[from + 1], (size_t)(to - from) * sizeof(order[0]));
-            memmove(ons + from, ons + from + 1, (size_t)(to - from));
+            memmove(sOrd[from], sOrd[from + 1], (size_t)(to - from) * sizeof(sOrd[0]));
+            memmove(sOrdOn + from, sOrdOn + from + 1, (size_t)(to - from));
         }
-        snprintf(order[to], sizeof(order[0]), "%s", keep);
-        ons[to] = keepOn;
+        snprintf(sOrd[to], sizeof(sOrd[0]), "%s", keep);
+        sOrdOn[to] = keepOn;
     }
-    PortCharas_OrderWrite((const char(*)[128])order, ons, n);
+    for (i = 0; i < sLibCount; i++) { /* the list (a form has its package's place): the same move */
+        int p = sLib[i].place;
+        if (p == from) {
+            sLib[i].place = to;
+            if (on >= 0) {
+                sLib[i].on = on != 0;
+            }
+        } else if (to < from && p >= to && p < from) {
+            sLib[i].place = p + 1;
+        } else if (to > from && p > from && p <= to) {
+            sLib[i].place = p - 1;
+        }
+    }
+    sSkinsKnown = 0;
+    sReloadDue = 1;
+    if (!sBatch) {
+        PortCharas_OrderWrite((const char(*)[128])sOrd, sOrdOn, sOrdN);
+    }
 }
 
-/* After a change: the packages read again, then the list. */
+/* Many switches in a row (all on, all off): 1 before them, 0 after: the order is written once. */
+void Port_ModBatch(s32 on) {
+    if (sBatch && !on) {
+        PortCharas_OrderWrite((const char(*)[128])sOrd, sOrdOn, sOrdN);
+    }
+    sBatch = on;
+}
+
+/* What was switched is taken up by the game: before anything that asks for its characters (a test fight), and when
+   the manager is left. */
+void Port_ModFlush(void) {
+    if (sReloadDue && !Port_NetSession()) {
+        sReloadDue = 0;
+        PortCharas_Reload();
+    }
+}
+
+/* After a change of a package's files: the list read again; the game's own list when it is needed (Port_ModFlush). */
 static void changed(void) {
-    PortCharas_Reload();
+    sReloadDue = 1;
     lib_read();
 }
 
@@ -249,7 +365,20 @@ void Port_ModRescan(void) {
     if (!Port_NetSession()) {
         PortCharas_Reload();
     }
+    sReloadDue = 0;
     lib_read();
+}
+
+/* The manager opens: the list as it is (nothing is read again when the folder has not changed since it was read;
+   "Reload the mods folder" of its menu reads all). The first time, the game's own list was read at the start of
+   the game, before the list here: it is read once more when the manager is left, should anything have come since. */
+void Port_ModEnter(void) {
+    if (!sLibRead) {
+        lib_read();
+        sReloadDue = 1;
+    } else if (folder_stamp() != sStamp) {
+        Port_ModRescan();
+    }
 }
 
 s32 Port_ModsChanged(void) {
@@ -264,7 +393,6 @@ s32 Port_ModCount(void) {
 void Port_ModGetInfo(s32 i, PortModInfo *out) {
     const Pkg *p;
     int list[LIB_MAX], n, k, onCount = 0, before = 0;
-    char v[64];
 
     memset(out, 0, sizeof(*out));
     out->skin = out->rival = -1;
@@ -274,7 +402,9 @@ void Port_ModGetInfo(s32 i, PortModInfo *out) {
     }
     p = &sLib[i];
     snprintf(out->name, sizeof(out->name), "%s", p->folder);
-    out->chara = chara_of(p);
+    /* (a package that names no fighter: none (-1), not character 0. After an import the manager then asks which it is
+       (Mm_ImportPoll), and the Library says "Edit details to pick one". The game itself still stands it on 0.) */
+    out->chara = p->d.baseSet ? chara_of(p) : -1;
     Port_ModCharaName(out->chara, out->target, sizeof(out->target));
     if (p->d.nameSet) {
         snprintf(out->white, sizeof(out->white), "%s", p->d.name);
@@ -291,16 +421,17 @@ void Port_ModGetInfo(s32 i, PortModInfo *out) {
     }
     out->large = p->d.large;
     out->isNew = p->d.replaces < 0;
+    out->added = (s32)p->added;
     out->problem = problem_of(&p->d);
     out->charas = 1;
     out->charaList[0] = out->chara;
     out->art[3] = out->artH = 100;
-    if (PortCharas_ManifestGet(p->folder, "portrait_frame", v, sizeof(v)) &&
-        sscanf(v, "%d,%d,%d,%d", &out->art[1], &out->art[2], &out->art[3], &out->artH) == 4) {
+    if (p->frame[0] != '\0' &&
+        sscanf(p->frame, "%d,%d,%d,%d", &out->art[1], &out->art[2], &out->art[3], &out->artH) == 4) {
         out->art[0] = 1; /* (a portrait made in the manager: its frame, to open it again) */
     }
-    if (PortCharas_ManifestGet(p->folder, "chip_square", v, sizeof(v))) {
-        sscanf(v, "%d,%d,%d", &out->chip[0], &out->chip[1], &out->chip[2]);
+    if (p->square[0] != '\0') {
+        sscanf(p->square, "%d,%d,%d", &out->chip[0], &out->chip[1], &out->chip[2]);
     }
     for (k = 0; k < sLibCount; k++) { /* (the packages: a form is counted with its package) */
         onCount += sLib[k].on && !sLib[k].form;
@@ -311,12 +442,15 @@ void Port_ModGetInfo(s32 i, PortModInfo *out) {
     out->rival = rival_of(i);
     out->conflict = p->on && out->rival >= 0;
     out->wins = !out->conflict || sLib[out->rival].place > p->place;
-    n = skins(list, LIB_MAX);
-    for (k = 0; k < n; k++) {
-        if (list[k] == i) {
-            out->skin = k;
+    if (!sSkinsKnown) {
+        sSkinsKnown = 1;
+        n = skins(list, LIB_MAX);
+        memset(sSkinOf, 0xFF, sizeof(sSkinOf));
+        for (k = 0; k < n; k++) {
+            sSkinOf[list[k]] = k;
         }
     }
+    out->skin = sSkinOf[i];
 }
 
 /* Switches a package on or off. One switched on goes first in the order (it wins), and another that is on for the
@@ -338,7 +472,6 @@ s32 Port_ModToggle(s32 i) {
         }
         order_put(folder, 0, 1);
     }
-    changed();
     for (i = 0; other[0] != '\0' && i < sLibCount; i++) {
         if (strcmp(sLib[i].folder, other) == 0) {
             off = i;
@@ -366,7 +499,6 @@ void Port_ModPriority(s32 i, s32 dir) {
     }
     if (best >= 0) {
         order_put(sLib[i].folder, sLib[best].place, -1);
-        changed();
     }
 }
 
@@ -1078,13 +1210,13 @@ void Port_RosterMove(s32 skin, s32 dir) {
         return;
     }
     order_put(sLib[list[skin]].folder, sLib[list[skin + dir]].place, -1);
-    changed();
 }
 
 /* An added character's id: the game's own number for it (0xC6 on), -1 if it is not one that is on. */
 s32 Port_ModFighterId(s32 i) {
     int k;
     ensure();
+    Port_ModFlush();
     for (k = 0; valid(i) && sLib[i].on && sLib[i].d.replaces < 0 && k < Port_CharaPkgCount(); k++) {
         const PortCharaPkg *p = Port_CharaPkg(k);
         if (p->kind == PORT_PKG_ADDS && strcmp(p->folder, sLib[i].folder) == 0) {
@@ -2187,7 +2319,7 @@ void Port_DirKind(s32 kind) {
 }
 
 static int listed_file(const char *name) {
-    static const char *const kMods[] = {".pak", ".unk", ".cdbt", ".dbt", ".bin", ".txt", ".zip", NULL};
+    static const char *const kMods[] = {".pak", ".unk", ".cdbt", ".dbt", ".bin", ".txt", ".zip", ".7z", ".rar", ".iso", ".adx", ".mp3", ".wav", ".flac", ".fbx", ".obj", ".glb", ".gltf", ".dae", NULL};
     static const char *const kPics[] = {".png", ".bmp", ".jpg", ".jpeg", NULL};
     const char *const *ends = sDirKind == 1 ? kPics : kMods;
     size_t l = strlen(name);
@@ -2613,6 +2745,358 @@ static int is_package(const char *dir) {
     return PortCharas_DescribePath(dir, &d);
 }
 
+/* ---- mods of the old kind: loose files, named however their maker liked ----
+ * "Kinnikuman.unk", "moves.unk", "sfx.unk", "AUDIOS/T.unk", "AUDIOS/ADX/T(35475).adx"... made to be put on a disc over a
+ * fighter. What a file is, is told by its contents (a pack of 252 sections is a model, 440 animations, 6 effects, 3 a
+ * voice bank), and by the archive's number in its name where it has one (the tools number from 0, each archive by itself:
+ * a file id is that + 1 in the first, + 0xD48 in the second); the number also says whose it was. They become a
+ * package of the characters folder: a character of its own, standing on the fighter it was made for (Edit Details can
+ * make it replace that fighter instead). */
+static int ends_with(const char *s, const char *end);
+static int is_archive(const char *path);
+enum { OLD_MODELS = 32, OLD_LINES = 400 };
+typedef struct {
+    char path[800];
+    int number; /* the archive's number in its name, -1 none */
+} OldFile;
+typedef struct {
+    OldFile model[OLD_MODELS], anm, eff, bank[OLD_MODELS], portrait;
+    int models, banks, nanm, neff, nportrait;
+    OldFile line[OLD_LINES];
+    int lines;
+    char text[800]; /* a read-me */
+} OldMod;
+
+static int name_number(const char *path) {
+    const char *base = base_of(path), *dot = strrchr(base, '.');
+    int best = -1, k, digits = 0, value = 0, n = dot != NULL ? (int)(dot - base) : (int)strlen(base);
+    for (k = 0; k <= n; k++) {
+        if (k < n && isdigit((unsigned char)base[k])) {
+            value = value * 10 + base[k] - '0';
+            digits++;
+        } else {
+            if (digits >= 2 && digits <= 5) {
+                best = value;
+            }
+            digits = value = 0;
+        }
+    }
+    return best;
+}
+
+/* the sections of a pack that holds together, 0 if it is not one */
+static int old_pack_count(const char *path, long size) {
+    unsigned char head[8], last[4];
+    FILE *f = fopen(path, "rb");
+    uint32_t n = 0;
+    if (f == NULL) {
+        return 0;
+    }
+    if (fread(head, 1, 8, f) == 8) {
+        n = rd32(head);
+        if (n == 0 || n > 4096 || (long)(n + 2) * 4 > size || (long)rd32(head + 4) > size || fseek(f, (long)n * 4 + 4, SEEK_SET) != 0 || fread(last, 1, 4, f) != 4 ||
+            (long)(rd32(last) & ~3u) > size + 2048) {
+            n = 0;
+        }
+    }
+    fclose(f);
+    return (int)n;
+}
+
+static long old_size(const char *path) {
+    SDL_PathInfo pi;
+    return SDL_GetPathInfo(path, &pi) ? (long)pi.size : 0;
+}
+
+/* (a folder that is a package is one by itself, and is not looked into) */
+static void old_walk(const char *dir, OldMod *m, int depth) {
+    char **names;
+    char path[800];
+    int n = 0, k;
+    if (depth > 5 || (names = list_dir(dir, &n)) == NULL) {
+        return;
+    }
+    for (k = 0; k < n; k++) {
+        const char *name = names[k];
+        long size;
+        int kind;
+        if (name[0] == '.' || snprintf(path, sizeof(path), "%s/%s", dir, name) >= (int)sizeof(path)) {
+            continue;
+        }
+        kind = path_kind(path);
+        if (kind == 2) {
+            if (!is_package(path)) {
+                old_walk(path, m, depth + 1);
+            }
+        } else if (kind == 1 && (size = old_size(path)) > 0) {
+            if (ends_with(name, ".adx")) {
+                if (size < 4L << 20 && m->lines < OLD_LINES) { /* (a song is larger) */
+                    snprintf(m->line[m->lines].path, sizeof(m->line[0].path), "%s", path);
+                    m->line[m->lines++].number = name_number(path);
+                }
+            } else if (ends_with(name, ".txt") || ends_with(name, ".nfo")) {
+                if (m->text[0] == '\0') {
+                    snprintf(m->text, sizeof(m->text), "%s", path);
+                }
+            } else if (ends_with(name, ".unk") || ends_with(name, ".pak") || ends_with(name, ".bin") || ends_with(name, ".dat")) {
+                int count = old_pack_count(path, size), number = name_number(path);
+                OldFile *to = NULL;
+                if (count == 252 && m->models < OLD_MODELS) {
+                    to = &m->model[m->models++];
+                } else if (count == 440 && m->nanm++ == 0) {
+                    to = &m->anm;
+                } else if (count == 6 && m->neff++ == 0) {
+                    to = &m->eff;
+                } else if (count == 3 && m->banks < OLD_MODELS) {
+                    to = &m->bank[m->banks++];
+                } else if (number >= 0x2F9 - 1 && number < 0x2F9 - 1 + DISC && m->nportrait++ == 0) {
+                    to = &m->portrait;
+                }
+                if (to != NULL) {
+                    snprintf(to->path, sizeof(to->path), "%s", path);
+                    to->number = number;
+                }
+            }
+        }
+    }
+    list_free(names, n);
+}
+
+static int old_models_in(const char *dir) {
+    static OldMod m; /* (large; only on the import's thread) */
+    memset(&m, 0, sizeof(m));
+    old_walk(dir, &m, 0);
+    return m.models;
+}
+
+/* whose a file's number says it is, what it is: a line's language (0 Japanese, 1 English) and place */
+static int old_line_of(int number, int *set, int *line) {
+    int id = number + 0xD48;
+    if (number < 0) {
+        return -1;
+    }
+    if (id >= 0xCC32 && id < 0xCC32 + DISC * 100) {
+        *set = 1;
+        *line = (id - 0xCC32) % 100;
+        return (id - 0xCC32) / 100;
+    }
+    if (id >= 0x8D4E && id < 0x8D4E + DISC * 100) {
+        *set = 0;
+        *line = (id - 0x8D4E) % 100;
+        return (id - 0x8D4E) / 100;
+    }
+    return -1;
+}
+
+static void dir_of(const char *path, char *out, size_t size) {
+    const char *base = base_of(path);
+    snprintf(out, size, "%.*s", (int)(base - path > 0 ? base - path - 1 : 0), path);
+}
+
+/* the language of a file by the words of its path inside the mod, -1 they do not say */
+static int old_lang_word(const char *path) {
+    static const char *const kUs[] = {"latin", "ingl", "engl", "dub", "/us", "/eng", NULL}, *const kJp[] = {"japan", "japon", "jap", "/jp", NULL};
+    int k;
+    for (k = 0; kUs[k] != NULL; k++) {
+        if (SDL_strcasestr(path, kUs[k]) != NULL) {
+            return 1;
+        }
+    }
+    for (k = 0; kJp[k] != NULL; k++) {
+        if (SDL_strcasestr(path, kJp[k]) != NULL) {
+            return 0;
+        }
+    }
+    return -1;
+}
+
+static int old_copy(const char *from, const char *to) {
+    long n = 0;
+    unsigned char *b = file_all(from, 32L << 20, &n);
+    int ok = b != NULL && put_file(to, b, n);
+    free(b);
+    return ok;
+}
+
+/* a fighter a read-me speaks of ("Reemplaza a Tenshinhan"): the one with the longest name in it, -1 none */
+static int old_who_in_text(const char *path) {
+    long n = 0;
+    unsigned char *b = path[0] != '\0' ? file_all(path, 1L << 16, &n) : NULL;
+    int c, best = -1;
+    size_t longest = 3;
+    char *text, name[48];
+    if (b == NULL || (text = malloc((size_t)n + 1)) == NULL) {
+        free(b);
+        return -1;
+    }
+    memcpy(text, b, (size_t)n);
+    text[n] = '\0';
+    free(b);
+    for (c = 0; c < DISC; c++) {
+        size_t l;
+        Port_ModCharaName(c, name, sizeof(name));
+        if (strchr(name, ' ') != NULL) {
+            *strchr(name, ' ') = '\0'; /* (its first word: the disc's lists add a form to it) */
+        }
+        l = strlen(name);
+        if (l > longest && SDL_strcasestr(text, name) != NULL) {
+            longest = l;
+            best = c;
+        }
+    }
+    free(text);
+    return best;
+}
+
+/* the mod of old-kind files under dir (found by old_models_in) into a package; `title` names it if its files do not */
+static void old_import(const char *root, const char *dir, const char *title) {
+    static OldMod m;
+    static char used[2][100];
+    char stage[420], folder[440], path[500], name[64], man[600];
+    size_t skip = strlen(dir);
+    int who = -1, k, costume = 0, dmgs = 0;
+    int bankOf[2] = {-1, -1};
+
+    memset(&m, 0, sizeof(m));
+    memset(used, 0, sizeof(used));
+    old_walk(dir, &m, 0);
+    if (m.models == 0) {
+        return;
+    }
+    /* its name: the first model's own, when it is a word; else the archive's */
+    {
+        const char *b = base_of(m.model[0].path), *dot = strrchr(b, '.');
+        char word[64];
+        int letters = 0, i;
+        snprintf(word, sizeof(word), "%.*s", (int)(dot != NULL ? dot - b : (long)strlen(b)), b);
+        for (i = 0; word[i] != '\0'; i++) {
+            letters += isalpha((unsigned char)word[i]) != 0;
+        }
+        plain_name(letters >= 4 && SDL_strcasecmp(word, "model") != 0 && SDL_strcasecmp(word, "modelo") != 0 && m.model[0].number < 0 ? word : title, name);
+    }
+    if (name[0] == '\0') {
+        snprintf(name, sizeof(name), "Character");
+    }
+    snprintf(stage, sizeof(stage), "%s/.import/old", root);
+    tree_remove(stage, 0);
+    SDL_CreateDirectory(stage);
+    snprintf(folder, sizeof(folder), "%s/%s", stage, name);
+    SDL_CreateDirectory(folder);
+    /* the models: by their numbers (costume, damaged), else in the order of their names */
+    for (k = 0; k < m.models; k++) {
+        int number = m.model[k].number, id = number + 1, dmg = 0, place;
+        if (id >= 0x590 && id < 0x590 + DISC * 10 && (id - 0x590) % 10 < 8) {
+            who = who < 0 ? (id - 0x590) / 10 : who;
+            dmg = (id - 0x590) % 10 >= 4;
+            place = (id - 0x590) % 10 % 4;
+        } else {
+            const char *b = base_of(m.model[k].path);
+            dmg = SDL_strcasestr(b, "dmg") != NULL || SDL_strcasestr(b, "dam") != NULL || SDL_strcasestr(b, "dano") != NULL;
+            place = dmg ? dmgs : costume;
+        }
+        if (place > 3) {
+            continue;
+        }
+        snprintf(path, sizeof(path), "%s/m_%dp%s.pak", folder, place + 1, dmg ? "_dmg" : "");
+        if (dmg) {
+            dmgs++;
+        } else {
+            costume = place + 1;
+        }
+        old_copy(m.model[k].path, path);
+    }
+    if (m.anm.path[0] != '\0') {
+        snprintf(path, sizeof(path), "%s/m_anm.pak", folder);
+        old_copy(m.anm.path, path);
+    }
+    if (m.eff.path[0] != '\0') {
+        snprintf(path, sizeof(path), "%s/m_eff.pak", folder);
+        old_copy(m.eff.path, path);
+    }
+    if (m.portrait.path[0] != '\0') {
+        snprintf(path, sizeof(path), "%s/portrait.bin", folder);
+        old_copy(m.portrait.path, path);
+    }
+    /* the spoken lines: by their numbers. "T.adx" beside "T(35475).adx" is the first of its folder, one before the lowest */
+    for (k = 0; k < m.lines; k++) {
+        int set = -1, line = 0, w = old_line_of(m.line[k].number, &set, &line);
+        if (w < 0) {
+            int j, low = -1;
+            char da[800], db[800];
+            dir_of(m.line[k].path, da, sizeof(da));
+            for (j = 0; j < m.lines; j++) {
+                dir_of(m.line[j].path, db, sizeof(db));
+                if (m.line[j].number >= 0 && strcmp(da, db) == 0 && (low < 0 || m.line[j].number < low)) {
+                    low = m.line[j].number;
+                }
+            }
+            w = low > 0 ? old_line_of(low - 1, &set, &line) : -1;
+        }
+        if (w >= 0) {
+            who = who < 0 ? w : who;
+            if (!used[set][line]) {
+                used[set][line] = 1;
+                snprintf(path, sizeof(path), "%s/voice_%s", folder, set ? "us" : "jp");
+                SDL_CreateDirectory(path);
+                snprintf(path, sizeof(path), "%s/voice_%s/%03d.adx", folder, set ? "us" : "jp", line);
+                old_copy(m.line[k].path, path);
+            }
+        }
+    }
+    /* the voice banks: by the number, else the language of the lines beside it (its folder, or an ADX folder in it), else
+       by the words of its path, else whichever language is left */
+    for (k = 0; k < m.banks && k < 8; k++) {
+        int number = m.bank[k].number, id = number + 1, lang = -1, j;
+        if (id >= 0xBDA && id < 0xBDA + DISC) {
+            lang = 0;
+            who = who < 0 ? id - 0xBDA : who;
+        } else if (id >= 0xC7B && id < 0xC7B + DISC) {
+            lang = 1;
+            who = who < 0 ? id - 0xC7B : who;
+        } else {
+            char d[800], db[800], withAdx[810];
+            dir_of(m.bank[k].path, d, sizeof(d));
+            snprintf(withAdx, sizeof(withAdx), "%s/ADX", d);
+            for (j = 0; j < m.lines && lang < 0; j++) {
+                int set = -1, line;
+                dir_of(m.line[j].path, db, sizeof(db));
+                if ((strcmp(d, db) == 0 || SDL_strcasecmp(withAdx, db) == 0) && old_line_of(m.line[j].number, &set, &line) >= 0) {
+                    lang = set;
+                }
+            }
+            if (lang < 0) {
+                lang = old_lang_word(m.bank[k].path + skip);
+            }
+        }
+        if (lang < 0 || bankOf[lang] >= 0) {
+            lang = bankOf[0] < 0 ? 0 : bankOf[1] < 0 ? 1 : -1;
+        }
+        if (lang >= 0) {
+            bankOf[lang] = k;
+            snprintf(path, sizeof(path), "%s/m_voice_%s.pak", folder, lang ? "us" : "jp");
+            old_copy(m.bank[k].path, path);
+        }
+    }
+    if (who < 0) {
+        who = old_who_in_text(m.text);
+    }
+    {
+        char disc[48] = "";
+        int w;
+        if (who >= 0) {
+            Port_ModCharaName(who, disc, sizeof(disc));
+        }
+        w = snprintf(man, sizeof(man), "format=1\nname=%s\nabout=An old-style mod%s%s. Added as a fighter of its own.\n", name, who >= 0 ? " made to replace " : "", disc);
+        if (who >= 0 && w > 0 && w < (int)sizeof(man)) {
+            snprintf(man + w, sizeof(man) - (size_t)w, "base=%d\n", who);
+        }
+        snprintf(path, sizeof(path), "%s/character.txt", folder);
+        put_file(path, (const unsigned char *)man, (long)strlen(man));
+    }
+    import_one(root, folder, 1);
+    tree_remove(stage, 0);
+}
+
 /* Every package in folder `dir` (it itself, or folders in it, four deep at most; a package's own folders are its
    forms, not packages of their own). */
 static void import_search(const char *root, const char *dir, int own, int depth) {
@@ -2625,6 +3109,24 @@ static void import_search(const char *root, const char *dir, int own, int depth)
     if (is_package(dir)) {
         import_one(root, dir, own);
         return;
+    }
+    if (old_models_in(dir) > 0) { /* old-kind files: this folder is one mod, unless several folders in it have models each */
+        int subs = 0;
+        if ((names = list_dir(dir, &n)) != NULL) {
+            for (k = 0; k < n; k++) {
+                if (names[k][0] != '.' && snprintf(path, sizeof(path), "%s/%s", dir, names[k]) < (int)sizeof(path) && path_kind(path) == 2 && old_models_in(path) > 0) {
+                    subs++;
+                }
+            }
+            list_free(names, n);
+        }
+        if (subs < 2) {
+            char title[64];
+            const char *from = depth == 0 && is_archive(sImpPath) ? base_of(sImpPath) : base_of(dir), *dot = strrchr(from, '.');
+            snprintf(title, sizeof(title), "%.*s", (int)(dot != NULL && dot > from ? dot - from : (long)strlen(from)), from);
+            old_import(root, dir, title);
+            return;
+        }
     }
     if (depth >= 4 || (names = list_dir(dir, &n)) == NULL) {
         return;
@@ -2763,13 +3265,226 @@ static int unpack(const char *arc, const char *out) {
     return 0;
 }
 
+unsigned char *Port_BpeUnpack(const unsigned char *src, long n, long max, long *size) { return bpe_unpack(src, n, max, size); }
+
+/* the stages / songs folder (next to the game when there is none yet) */
+const char *Port_ExtrasDir(int songs) {
+    const char *d = songs ? PortSongs_Dir() : PortStages_Dir();
+    return d != NULL && d[0] != '\0' ? d : songs ? "songs" : "stages";
+}
+
+/* ---- a 3D model file (FBX, OBJ, glTF) made into a fighter: gs/modelimport.c ---- */
+static int sMiBase, sMiFit, sImpModelFailed;
+
+s32 Port_MiIsModel(char *path) {
+    return path != NULL && Mi_IsModel(path);
+}
+
+/* what the next model import builds on: the disc fighter whose skeleton, moves and voice it takes, and how it is fitted */
+void Port_MiSet(s32 base, s32 fit) {
+    sMiBase = base;
+    sMiFit = fit;
+}
+
+/* the owner's other choices (MiOpts, in order): 0 up, 1 facing, 2 mirror, 3 size, 4 arms, 5 shoulder, 6 waist, 7 neck, 8 textures, 9 rig */
+static int sMiO[10];
+void Port_MiOpt(s32 which, s32 value) {
+    if (which >= 0 && which < 10) {
+        sMiO[which] = value;
+    }
+}
+s32 Port_MiOptGet(s32 which) {
+    return which >= 0 && which < 10 ? sMiO[which] : 0;
+}
+static void mi_opts(MiOpts *o) {
+    memset(o, 0, sizeof(*o));
+    o->up = sMiO[0]; o->facing = sMiO[1]; o->mirror = sMiO[2]; o->size = sMiO[3]; o->arms = sMiO[4];
+    o->shoulder = sMiO[5]; o->waist = sMiO[6]; o->neck = sMiO[7]; o->tex = sMiO[8]; o->rig = sMiO[9];
+}
+
+/* ---- a test of the model, shown in the preview before anything is made ----
+ * The same build into a staging package (characters/.import/modeltest/pack, a dot folder: no package to the reader), on a
+ * thread of its own; the manager shows it as the browser shows a folder (Port_DirLook, Port_ModPreview(-2)). The
+ * base fighter's own model is kept beside it, so each new build starts from the original. */
+static SDL_Thread *sMiTThread;
+static SDL_AtomicInt sMiTState; /* 0 none, 1 works, 2 done, 3 failed */
+static char sMiTPath[512], sMiTInfo[320];
+static int sMiTBase, sMiTFit, sMiTHave = -1;
+static MiOpts sMiTOpts;
+
+static int sMiTSeq; /* each build goes into a folder of its own: the viewer keeps the last one's files open */
+
+static int mi_test_work(void *unused) {
+    char root[300], stage[420], base[440], folder[460], path[500], why[200], found[200], man[200];
+    int ok = 0, k;
+    (void)unused;
+    sMiTInfo[0] = '\0';
+    if (!PortCharas_Root(root, sizeof(root))) {
+        snprintf(sMiTInfo, sizeof(sMiTInfo), "No characters folder");
+        SDL_SetAtomicInt(&sMiTState, 3);
+        return 0;
+    }
+    snprintf(stage, sizeof(stage), "%s/.import/modeltest", root);
+    snprintf(base, sizeof(base), "%s/base", stage);
+    if (sMiTHave != sMiTBase) {
+        snprintf(path, sizeof(path), "%s/.import", root);
+        SDL_CreateDirectory(path);
+        tree_remove(stage, 0);
+        SDL_CreateDirectory(stage);
+        SDL_CreateDirectory(base);
+        sMiTHave = -1;
+        if (Ce_BringDisc(base, sMiTBase, Port_FileRoot()) <= 0) {
+            snprintf(sMiTInfo, sizeof(sMiTInfo), "The files of fighter %d are not in the game data", sMiTBase);
+            SDL_SetAtomicInt(&sMiTState, 3);
+            return 0;
+        }
+        for (k = 1; k < 8; k++) {
+            snprintf(path, sizeof(path), "%s/m_%dp%s.pak", base, k % 4 + 1, k >= 4 ? "_dmg" : "");
+            remove(path);
+        }
+        snprintf(path, sizeof(path), "%s/m_1p_dmg.pak", base);
+        remove(path);
+        sMiTHave = sMiTBase;
+    }
+    if (sMiTSeq > 0) { /* (the one before the last may be let go; the last is on show) */
+        snprintf(path, sizeof(path), "%s/pack%d", stage, sMiTSeq - 1);
+        tree_remove(path, 0);
+    }
+    snprintf(folder, sizeof(folder), "%s/pack%d", stage, sMiTSeq + 1);
+    if (!tree_copy(base, folder, 0)) {
+        snprintf(sMiTInfo, sizeof(sMiTInfo), "Cannot copy the base fighter's files");
+        SDL_SetAtomicInt(&sMiTState, 3);
+        return 0;
+    }
+    ok = Mi_BuildEx(sMiTPath, folder, sMiTFit, &sMiTOpts, why, sizeof(why), found, sizeof(found));
+    if (ok) {
+        sMiTSeq++;
+        snprintf(man, sizeof(man), "format=1\nname=Model test\nbase=%d\n", sMiTBase);
+        snprintf(path, sizeof(path), "%s/character.txt", folder);
+        put_file(path, (const unsigned char *)man, (long)strlen(man));
+        snprintf(sMiTInfo, sizeof(sMiTInfo), "%.200s|%.100s", found, why);
+    } else {
+        snprintf(sMiTInfo, sizeof(sMiTInfo), "%.200s", why);
+    }
+    SDL_SetAtomicInt(&sMiTState, ok ? 2 : 3);
+    return 0;
+}
+
+/* starts a test with the choices made so far; 0 when one is still running */
+s32 Port_MiTestStart(char *path) {
+    if (path == NULL || Port_NetSession() || SDL_GetAtomicInt(&sMiTState) == 1) {
+        return 0;
+    }
+    if (sMiTThread != NULL) {
+        SDL_WaitThread(sMiTThread, NULL);
+        sMiTThread = NULL;
+    }
+    snprintf(sMiTPath, sizeof(sMiTPath), "%s", path);
+    sMiTBase = sMiBase;
+    sMiTFit = sMiFit;
+    mi_opts(&sMiTOpts);
+    SDL_SetAtomicInt(&sMiTState, 1);
+    if ((sMiTThread = SDL_CreateThread(mi_test_work, "model test", NULL)) == NULL) {
+        snprintf(sMiTInfo, sizeof(sMiTInfo), "Cannot start the test");
+        SDL_SetAtomicInt(&sMiTState, 3);
+    }
+    return 1;
+}
+
+/* 0 none, 1 working, 2 done, 3 failed; info: what was found and done (2: "found|done"), or why not */
+s32 Port_MiTestPoll(char *info, s32 max) {
+    s32 st = SDL_GetAtomicInt(&sMiTState);
+    if (st >= 2 && sMiTThread != NULL) {
+        SDL_WaitThread(sMiTThread, NULL);
+        sMiTThread = NULL;
+    }
+    if (st >= 2 && info != NULL && max > 0) {
+        snprintf(info, (size_t)max, "%s", sMiTInfo);
+    }
+    return st;
+}
+
+/* after a test is done: the staging package becomes what the manager's preview shows (Port_ModPreview(-2)); its fighter */
+s32 Port_MiTestLook(s32 *chara) {
+    char root[300], path[460];
+    PortModInfo pi;
+    if (!PortCharas_Root(root, sizeof(root))) {
+        return 0;
+    }
+    snprintf(path, sizeof(path), "%s/.import/modeltest/pack%d", root, sMiTSeq);
+    if (!Port_DirLook(path, &pi)) {
+        return 0;
+    }
+    *chara = pi.chara;
+    return 1;
+}
+
+/* leaving the screen: the staging package goes */
+void Port_MiTestEnd(void) {
+    char root[300], stage[420];
+    if (sMiTThread != NULL) {
+        SDL_WaitThread(sMiTThread, NULL);
+        sMiTThread = NULL;
+    }
+    SDL_SetAtomicInt(&sMiTState, 0);
+    sMiTHave = -1;
+    sMiTSeq = 0;
+    if (PortCharas_Root(root, sizeof(root))) {
+        snprintf(stage, sizeof(stage), "%s/.import/modeltest", root);
+        tree_remove(stage, 0);
+    }
+}
+
+/* A package made of the base fighter's files, with its first costume's model made again from the file. */
+static void model_import(const char *root) {
+    char stage[420], folder[440], path[500], name[64], title[64], man[700], why[200], disc[48] = "";
+    const char *b = base_of(sImpPath), *dot = strrchr(b, '.');
+    int k;
+
+    snprintf(title, sizeof(title), "%.*s", (int)(dot != NULL && dot > b ? dot - b : (long)strlen(b)), b);
+    plain_name(title, name);
+    if (name[0] == '\0') {
+        snprintf(name, sizeof(name), "Model");
+    }
+    snprintf(stage, sizeof(stage), "%s/.import/model", root);
+    tree_remove(stage, 0);
+    SDL_CreateDirectory(stage);
+    snprintf(folder, sizeof(folder), "%s/%s", stage, name);
+    SDL_CreateDirectory(folder);
+    SDL_SetAtomicInt(&sImpProg[2], 2);
+    if (Ce_BringDisc(folder, sMiBase, Port_FileRoot()) <= 0) {
+        fprintf(stderr, "bt3: model import: the files of fighter %d are not in the game data\n", sMiBase);
+        sImpModelFailed = 1;
+    } else {
+        for (k = 1; k < 8; k++) { /* one costume: the others, and the torn ones, would be the base fighter's body */
+            snprintf(path, sizeof(path), "%s/m_%dp%s.pak", folder, k % 4 + 1, k >= 4 ? "_dmg" : "");
+            remove(path);
+        }
+        snprintf(path, sizeof(path), "%s/m_1p_dmg.pak", folder);
+        remove(path);
+        MiOpts mo;
+        mi_opts(&mo);
+        if (!Mi_BuildEx(sImpPath, folder, sMiFit, &mo, why, sizeof(why), NULL, 0)) {
+            fprintf(stderr, "bt3: model import: %s: %s\n", sImpPath, why);
+            sImpModelFailed = 1;
+        } else {
+            Port_ModCharaName(sMiBase, disc, sizeof(disc));
+            snprintf(man, sizeof(man), "format=1\nname=%s\nabout=Made from the 3D model %.80s (%s). Skeleton, moves and voice of %s.\nbase=%d\n", name, b, why, disc, sMiBase);
+            snprintf(path, sizeof(path), "%s/character.txt", folder);
+            put_file(path, (const unsigned char *)man, (long)strlen(man));
+            import_one(root, folder, 1);
+        }
+    }
+    tree_remove(stage, 0);
+}
+
 static int import_work(void *unused) {
     char root[300], work[400], unpacked[420], dir[700];
     char *slash;
     int kind;
     (void)unused;
 
-    sImpAdded = sImpSkipped = sImpOwn = sImpUnpackFailed = sImpVisits = 0;
+    sImpAdded = sImpSkipped = sImpOwn = sImpUnpackFailed = sImpVisits = sImpModelFailed = 0;
     sImpFirst[0] = '\0';
     if (!PortCharas_Root(root, sizeof(root))) {
         SDL_SetAtomicInt(&sImpState, 2);
@@ -2778,6 +3493,11 @@ static int import_work(void *unused) {
     kind = path_kind(sImpPath);
     if (kind != 0 && in_folder(sImpPath, root)) {
         sImpOwn = 1;
+    } else if (kind == 1 && Mi_IsModel(sImpPath)) {
+        snprintf(work, sizeof(work), "%s/.import", root);
+        SDL_CreateDirectory(work);
+        model_import(root);
+        tree_remove(work, 0);
     } else if (kind == 1 && is_archive(sImpPath)) {
         SDL_SetAtomicInt(&sImpProg[2], 1);
         snprintf(work, sizeof(work), "%s/.import", root);
@@ -2786,6 +3506,13 @@ static int import_work(void *unused) {
         if (unpack(sImpPath, unpacked)) {
             SDL_SetAtomicInt(&sImpProg[2], 2);
             import_search(root, unpacked, 1, 0);
+            { /* stages and songs that came with it */
+                int extras = Ex_AddLoose(unpacked, Port_ExtrasDir(0), Port_ExtrasDir(1));
+                sImpAdded += extras;
+                if (extras > 0) {
+                    Port_ExTouched();
+                }
+            }
         } else {
             sImpUnpackFailed = 1;
             fprintf(stderr, "bt3: mod manager: could not unpack %s (no program for it)\n", sImpPath);
@@ -2821,9 +3548,18 @@ static int import_work(void *unused) {
         if (!sImpAll || kind == 1) {
             if (is_package(dir)) {
                 import_one(root, dir, 0);
+            } else {
+                import_search(root, dir, 0, 3); /* (loose old-kind files; not what is in folders far below) */
             }
         } else {
             import_search(root, dir, 0, 0);
+            {
+                int extras = Ex_AddLoose(dir, Port_ExtrasDir(0), Port_ExtrasDir(1));
+                sImpAdded += extras;
+                if (extras > 0) {
+                    Port_ExTouched();
+                }
+            }
         }
         tree_remove(work, 0);
     }
@@ -2832,6 +3568,17 @@ static int import_work(void *unused) {
 }
 
 /* Starts adding what is at `path` (all: every package in it; else it as one package); 0 if one runs already. */
+/* the folder of mod i, whole */
+int Port_ModDirOf(int i, char *out, int size) {
+    char root[300];
+    ensure();
+    if (!valid(i) || !PortCharas_Root(root, sizeof(root))) {
+        return 0;
+    }
+    snprintf(out, (size_t)size, "%s/%s", root, sLib[i].folder);
+    return 1;
+}
+
 s32 Port_ModImportStart(char *path, s32 all) {
     if (SDL_GetAtomicInt(&sImpState) != 0 || path == NULL || Port_NetSession()) {
         return 0;
@@ -2891,7 +3638,7 @@ s32 Port_ModImportInfo(s32 *skipped) {
     if (skipped != NULL) {
         *skipped = sImpSkipped;
     }
-    return sImpOwn ? -2 : sImpUnpackFailed ? -3 : sImpFirstAt;
+    return sImpOwn ? -2 : sImpUnpackFailed ? -3 : sImpModelFailed ? -4 : sImpFirstAt;
 }
 
 /* The same, waited for (one package; every package in it). */

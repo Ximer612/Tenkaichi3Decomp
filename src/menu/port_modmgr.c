@@ -353,6 +353,11 @@ static s32 Mm_Before(s32 a, s32 b) {
             return x->priority < y->priority;
         }
         break;
+    case 4: /* newest added first */
+        if (x->added != y->added) {
+            return x->added > y->added;
+        }
+        break;
     }
     for (k = 0; x->name[k] != 0 && x->name[k] == y->name[k]; k++) {
     }
@@ -836,6 +841,23 @@ static void Mm_ExtrasClear(void) {
     }
 }
 
+/* lets go of the files the viewer has: before a file of the mod under the cursor is written. It shows again by itself. */
+void Mm_ViewRelease(void) {
+    ChrView_Hide();
+    Port_ModPreview(-1);
+    sMm->shown = -1;
+}
+s32 sMmHand; /* the model is turned by hand (the model page): it does not turn by itself */
+void Mm_Hand(s32 on) {
+    sMmHand = on;
+}
+void Mm_TurnBy(f32 d) {
+    sMmHand = 1;
+    sMm->yaw += d;
+    if (sMm->yaw < 0.0f) {
+        sMm->yaw += 6.2831853f;
+    }
+}
 void Mm_SetModel(f32 cx, f32 feet, f32 height) {
     sMmPlace[0] = cx;
     sMmPlace[1] = feet;
@@ -949,7 +971,7 @@ static void Mm_ModelUpdate(void) {
             }
             return;
         }
-        Mm_PlaceModel(ci, obj, sMmPlace, &sMm->yaw, 1, &dist, &fy, &hf);
+        Mm_PlaceModel(ci, obj, sMmPlace, &sMm->yaw, !sMmHand, &dist, &fy, &hf);
         Mm_ExtrasUpdate(dist, fy, hf);
     } else {
         Mm_ExtrasUpdate(1.0f, 0.5f, 0.3f);
@@ -1076,7 +1098,7 @@ static char *Mm_About(s32 part) {
 }
 
 static char *sMmShowName[MM_SHOWS] = {"ALL", "ON ONLY", "OFF ONLY", "REPLACERS", "NEW FIGHTERS", "PROBLEMS"};
-static char *sMmSortName[MM_SORTS] = {"NAME", "FIGHTER", "ON FIRST", "PRIORITY"};
+static char *sMmSortName[MM_SORTS] = {"NAME", "FIGHTER", "ON FIRST", "PRIORITY", "NEWEST ADDED"};
 
 /* The Library's list (mockup 01): a bar per mod - its face, its name, what it replaces, ON / OFF - the cursor's gold. */
 #define LIB_X0 62.0f
@@ -1348,10 +1370,13 @@ static void Lib_Draw(void) {
 #define ACT_COSTUME 1
 #define ACT_EDIT 2
 #define ACT_FORMS 3
-#define ACT_TEST 4
-#define ACT_FILES 5
-#define ACT_REMOVE 6
-#define ACT_COUNT 7
+#define ACT_MOVESET 4
+#define ACT_MOVES 5
+#define ACT_NUMBERS 6
+#define ACT_TEST 7
+#define ACT_FILES 8
+#define ACT_REMOVE 9
+#define ACT_COUNT 10
 
 static char *Act_Line(s32 k) {
     static char line[48];
@@ -1365,7 +1390,13 @@ static char *Act_Line(s32 k) {
     case ACT_EDIT:
         return "EDIT DETAILS...";
     case ACT_FORMS:
-        return "TRANSFORMATIONS...";
+        return "TRANSFORMATIONS, FUSIONS...";
+    case ACT_MOVESET:
+        return "CUSTOMIZE MOVESET...";
+    case ACT_MOVES:
+        return "MOVES' NAMES...";
+    case ACT_NUMBERS:
+        return "NUMBERS...";
     case ACT_TEST:
         return "TEST FIGHT";
     case ACT_FILES:
@@ -1376,7 +1407,7 @@ static char *Act_Line(s32 k) {
 
 static void Mm_DrawAct(void) {
     f32 t = Mm_Ease((f32)sMm->actT / 6.0f);
-    f32 pitch = 46.0f;
+    f32 pitch = 44.0f;
     f32 h = 70.0f + pitch * (f32)ACT_COUNT;
     f32 x0 = 612.0f;
     f32 x1 = 948.0f;
@@ -1490,8 +1521,6 @@ static s32 Mm_MenuLive(s32 item) {
     case MI_SHOW:
     case MI_SORT:
         return sMm->count > 0;
-    case MI_FOLDER:
-        return sMm->viewCount > 0;
     }
     return 1;
 }
@@ -1501,7 +1530,7 @@ static char *Mm_MenuLine(s32 item) {
 
     switch (item) {
     case MI_ADD:
-        return "ADD MODS...";
+        return "MOD GRID (WHERE THEY STAND)...";
     case MI_FIND:
         if (sMm->findLen > 0) {
             sprintf(line, "SEARCH: %s", sMm->find);
@@ -1530,7 +1559,7 @@ static char *Mm_MenuLine(s32 item) {
     case MI_RELOAD:
         return "RELOAD THE MODS FOLDER";
     case MI_FOLDER:
-        return "SHOW THIS MOD'S FILES ON THE PC";
+        return "FORMS OF ONE OF THE GAME'S FIGHTERS...";
     case MI_LIBDIR:
         return "OPEN THE MODS FOLDER ON THE PC";
     }
@@ -1552,7 +1581,7 @@ static void Mm_DrawMenu(void) {
     if (sMm->menuT < 4) {
         return;
     }
-    Mx_TextC(688.0f, 146.0f + y, "LIBRARY MENU", 36.0f, 0.0f, Mx_Rgba(0xFF, 0xF0, 0xB0, 0x80), Mx_Rgba(0xF0, 0xA0, 0x30, 0x80), Mx_Rgba(0x50, 0x20, 0x06, 0x80), 1, 0x80);
+    Mx_TextC(688.0f, 146.0f + y, "CHARACTERS MENU", 36.0f, 0.0f, Mx_Rgba(0xFF, 0xF0, 0xB0, 0x80), Mx_Rgba(0xF0, 0xA0, 0x30, 0x80), Mx_Rgba(0x50, 0x20, 0x06, 0x80), 1, 0x80);
     for (k = 0; k < MI_COUNT; k++) {
         f32 y0 = 190.0f + pitch * (f32)k + y;
         s32 live = Mm_MenuLive(k);
@@ -1626,6 +1655,7 @@ static void Mm_AllToggle(void) {
     s32 left = 0;
     s32 i;
 
+    Port_ModBatch(1);
     for (i = 0; i < sMm->count; i++) {
         Port_ModGetInfo(i, &one); /* (as things stand now: an earlier one of this loop may be its rival) */
         if (off && !one.on && one.rival >= 0) {
@@ -1634,8 +1664,8 @@ static void Mm_AllToggle(void) {
             left++; /* (it switched off one turned on earlier in this loop) */
         }
     }
+    Port_ModBatch(0);
     Mm_Refresh();
-    Mm_FreeFaces();
     sMm->flash = 10;
     if (left > 0) {
         sprintf(note, "ALL ON, EXCEPT %d (SAME FIGHTER AS ANOTHER)", (int)left);
@@ -1713,7 +1743,7 @@ static void Mm_MenuUpdate(void) {
     switch (k) {
     case MI_ADD:
         sMm->menu = 0;
-        Mm2_OpenBrowser();
+        Mm_SetMode(MM_ROSTER);
         break;
     case MI_FIND:
         sMm->menu = 0;
@@ -1754,8 +1784,9 @@ static void Mm_MenuUpdate(void) {
         Mm_Note("MODS FOLDER RELOADED");
         break;
     case MI_FOLDER:
-        Port_ModShowFolder(sMm->cur);
-        Mm_Note("OPENED ON THE PC (CHECK THE TASKBAR)");
+        sMm->menu = 0;
+        sMm->trWho = -1;
+        Mm_SetMode(MM_TRANSFORM);
         break;
     case MI_LIBDIR:
         Port_ModShowFolder(-1);
@@ -1770,12 +1801,16 @@ static void Mm_DrawImport(void);
 
 static void Mm_DrawFrame(void) {
     f32 drop = (1.0f - Mm_In(0)) * -160.0f;
-    s32 tab = 0;
+    s32 tab = 0; /* (the pages of a character are of the Characters tab) */
 
-    if (sMm->mode == MM_ROSTER || sMm->mode == MM_TRANSFORM) {
-        tab = sMm->mode;
-    } else if (sMm->mode == MM_PICKER) {
-        tab = sMm->back == MM_TRANSFORM ? MM_TRANSFORM : 0;
+    if (sMm->mode == MM_STAGES) {
+        tab = 1;
+    } else if (sMm->mode == MM_SONGS) {
+        tab = 2;
+    } else if (sMm->mode == MM_DISC || (sMm->mode == MM_BROWSER && sMm->browseWhat == 0)) {
+        tab = 3;
+    } else if ((sMm->mode == MM_PICKER || sMm->mode == MM_KEYBOARD) && (sMm->back == MM_STAGES || sMm->back == MM_SONGS || sMm->back == MM_DISC)) {
+        tab = sMm->back == MM_DISC ? 3 : sMm->back == MM_STAGES ? 1 : 2;
     }
     Mx_HeaderDraw();
     Mm_TexReset(); /* (the window's movie uploaded its own pictures) */
@@ -1839,10 +1874,11 @@ static void Mm_Library(s32 live) {
         if (have) {
             Mm_Prompt(0, "OPTIONS");
         }
-        Mm_Prompt(1, "LIBRARY MENU");
+        Mm_Prompt(1, "MENU");
         if (have && sMm->viewCount > MM_ROWS) {
             Mm_Prompt(3, "PAGE");
         }
+        Mm_Prompt(14, "TABS");
         Mm_Prompt(2, "BACK");
     }
     if (!live) {
@@ -1892,14 +1928,8 @@ static void Mm_Library(s32 live) {
         ColorFade_StartOut(0, 0, 0, 0x14);
         return;
     }
-    if (pad->gamePressed & PADG_R1) {
-        Snd_PlaySe(1, 0);
-        Mm_SetMode(MM_ROSTER);
-        return;
-    }
-    if (pad->gamePressed & PADG_L1) {
-        Snd_PlaySe(1, 0);
-        Mm_SetMode(MM_TRANSFORM);
+    if (pad->gamePressed & (PADG_L1 | PADG_R1)) { /* the manager's tabs */
+        Mm3_TabsMove();
         return;
     }
     if (pad->gamePressed & PADG_SQUARE) {
@@ -1991,7 +2021,6 @@ static void Lib_Toggle(void) {
         s32 off = Port_ModToggle(sMm->cur);
 
         Mm_Refresh();
-        Mm_FreeFaces(); /* the pictures may be other files now */
         sMm->flash = 10;
         if (off >= 0 && off < sMm->count) { /* (two mods for one fighter cannot both be used) */
             sprintf(note, "%.30s TURNED OFF (SAME FIGHTER)", sMm->info[off].name);
@@ -2079,6 +2108,18 @@ static void Mm_ActUpdate(void) {
         Snd_PlaySe(1, 1);
         Mm_SetMode(MM_TRANSFORM);
         break;
+    case ACT_MOVESET:
+        sMm->act = 0;
+        Mm3_OpenMoveset();
+        break;
+    case ACT_MOVES:
+        sMm->act = 0;
+        Mm3_OpenMoves();
+        break;
+    case ACT_NUMBERS:
+        sMm->act = 0;
+        Mm3_OpenNumbers();
+        break;
     case ACT_TEST:
         Lib_Test();
         break;
@@ -2131,7 +2172,10 @@ static void Mm_Watch(void) {
     }
 }
 
+extern void Port_MmStep(char *what);
+
 static void Mm_Init(void) {
+    Port_MmStep("start");
     sMm = Heap_Alloc(sizeof(ModMgr), 0x20, 0, 2);
     memset(sMm, 0, sizeof(ModMgr));
     sMm->shown = -1;
@@ -2142,19 +2186,42 @@ static void Mm_Init(void) {
     sMm->watchT = 90;
     sMm->curY = MM_LIST_Y;
     Mx_ChipsOpen();
+    Port_MmStep("chips");
     Mm_ExtrasInit();
-    Port_ModRescan();
+    Port_MmStep("extras");
+    Port_ModEnter();
+    Port_MmStep("library");
     Mm_Refresh();
+    Port_MmStep("refresh");
     if (sMmResume >= 0 && sMmResume < sMm->count) { /* back from a test fight: on the mod that was tested */
         Mm_Select(sMmResume);
     }
     sMmResume = -1;
     ChrView_Init();
+    Port_MmStep("viewer");
+    { /* testing: a tab, or something to import, without the way there being pressed */
+        char *test = getenv("BT3_MM_FILE");
+
+        if (getenv("BT3_MM_TAB") != NULL) {
+            s32 tab = getenv("BT3_MM_TAB")[0] - '0';
+
+            if (tab == 1 || tab == 2) {
+                Mm3_OpenExtras(tab - 1);
+            } else if (tab == 3) {
+                Mm2_OpenBrowser();
+            }
+        }
+        if (test != NULL) {
+            Mm_StartImport(test, 1, 0);
+        }
+    }
 }
 
 static void Mm_Term(void) {
     Port_TextMode(0);
     Port_ModPreview(-1);
+    Port_ModFlush();
+    Mm3_Term();
     Mm2_Term();
     Mm_ExtrasTerm();
     ChrView_Term();
@@ -2168,6 +2235,20 @@ static void Mm_Term(void) {
 /* Starts adding mods on the library's thread (from: 0 a drop, 1 the browser's one mod, 2 the browser's folder). */
 void Mm_StartImport(char *path, s32 all, s32 from) {
     Mm_Unshow();
+    if (Mm3_IsDisc(path)) { /* a disc image: what to take from it is picked first */
+        Mm2_BrowserKeep();
+        sMm->menu = 0;
+        sMm->confirm = 0;
+        Mm3_OpenDisc(path);
+        return;
+    }
+    if (Mm3_IsModel(path)) { /* a 3D model: its base fighter and fit are asked first */
+        Mm2_BrowserKeep();
+        sMm->menu = 0;
+        sMm->confirm = 0;
+        Mm3_OpenModel(path, from);
+        return;
+    }
     sMm->confirm = 0;
     sMm->menu = 0;
     if (sMm->finding) {
@@ -2283,6 +2364,11 @@ s32 Mm_ShowImport(s32 n) {
     Mm_Refresh();
     if (first == -2) {
         Mm_Note("THOSE ARE ALREADY THE LIBRARY'S OWN FILES");
+        Snd_PlaySe(1, 2);
+        return -1;
+    }
+    if (first == -4) {
+        Mm_Note("COULD NOT MAKE A FIGHTER OF THAT MODEL");
         Snd_PlaySe(1, 2);
         return -1;
     }

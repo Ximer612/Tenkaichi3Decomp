@@ -345,6 +345,58 @@ void MainMenu_Term(void) {
 }
 
 /* Draws the background, sets up every clip of the movie for this frame and draws it and the two windows. */
+#ifdef PORT
+/* The Mod Manager's line for the game's box: 16-bit letters, 0xFEFF first, cut at spaces into lines of the box's width. */
+static u16 *PortMainMenu_ModLine(void) {
+    extern void Port_ModManagerLine(char *out, s32 size);
+    extern s32 Font_GetWidth(u16 *str);
+    extern s32 MsgWin_PortLineRoom(s32 right);
+    static u16 out[256];
+    static s32 made;
+    static char say[256];
+    s32 room, n = 1, start = 1, lines = 1, at = 0, k;
+
+    if (made) {
+        return out;
+    }
+    made = 1;
+    Port_ModManagerLine(say, sizeof(say));
+    room = MsgWin_PortLineRoom(400);
+    out[0] = 0xFEFF;
+    while (say[at] != 0 && n < 254) {
+        s32 end = at, mark = n;
+
+        while (say[end] != 0 && say[end] != ' ') {
+            end++;
+        }
+        if (n > start) {
+            out[n++] = ' ';
+        }
+        for (k = at; k < end && n < 255; k++) { /* (UTF-8) */
+            u32 c = (u8)say[k];
+
+            if (c >= 0xC0 && c < 0xE0 && k + 1 < end) {
+                c = ((c & 0x1F) << 6) | ((u8)say[k + 1] & 0x3F);
+                k += 1;
+            }
+            out[n++] = (u16)c;
+        }
+        out[n] = 0;
+        if (mark > start && lines < 3 && Font_GetWidth(out + start) > room) { /* the word goes to the next line */
+            out[mark] = '\n';
+            start = mark + 1;
+            lines++;
+        }
+        at = end;
+        while (say[at] == ' ') {
+            at++;
+        }
+    }
+    out[n] = 0;
+    return out;
+}
+#endif
+
 void MainMenu_Draw(void) {
     MFlashRef ref;
     MFlashUv uv;
@@ -494,7 +546,26 @@ void MainMenu_Draw(void) {
         Flash_Draw(&gMainMenu->flash[i]);
     }
     IconWin_Draw();
+#ifdef PORT
+    {   /* the Mod Manager has no guide's line on the disc: its description, in the game's box and font */
+        extern void MsgWin_PortDrawString(u16 *str);
+        extern void MsgWin_SetText(void *text);
+        static s32 ownLine;
+
+        if (MAINMENU_CUR(gMainMenu) == MAINMENU_MOD_MANAGER) {
+            MsgWin_PortDrawString(PortMainMenu_ModLine());
+            ownLine = 1;
+        } else {
+            if (ownLine) {
+                MsgWin_SetText(gMainMenu->msgText);
+                ownLine = 0;
+            }
+            MsgWin_Draw(0, 0, gMainMenu->voiceLine);
+        }
+    }
+#else
     MsgWin_Draw(0, 0, gMainMenu->voiceLine);
+#endif
 #ifdef PORT
     Port_MenuPage(0);
 #endif

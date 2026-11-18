@@ -187,6 +187,10 @@ int __wrap_Progress_Main(int arg) {
                 if (!modeEntered && getenv("BT3_MENU_MODE") != NULL && !Port_NetSession() && gProgress != NULL && gSaveData != NULL) {
                     modeEntered = 1;
                     gProgress->mode = atoi(getenv("BT3_MENU_MODE"));
+                    if (getenv("BT3_MM_TAB") != NULL || getenv("BT3_MM_FILE") != NULL) { /* testing: the Mod Manager (through the versus menu, 38) */
+                        extern int gPortDuelRole;
+                        gPortDuelRole = 2;
+                    }
                 }
             }
             {   /* BT3_TBO=1 (testing): the first menu is Tenkaichi Budokai Online's (src/menu/port_tbo.c), not the

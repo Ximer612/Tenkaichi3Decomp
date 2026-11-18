@@ -301,6 +301,9 @@ def main_win():
     shutil.copy2(ROOT / "port/third_party/xxhash/LICENSE", lic / "xxhash.txt")
     shutil.copy2(ROOT / "port/third_party/miniaudio/LICENSE", lic / "miniaudio.txt")
     shutil.copy2(ROOT / "port/third_party/miniz/LICENSE", lic / "miniz.txt")
+    shutil.copy2(ROOT / "port/third_party/ufbx/LICENSE", lic / "ufbx.txt")  # (3D model import)
+    shutil.copy2(ROOT / "port/third_party/cgltf/LICENSE", lic / "cgltf.txt")
+    shutil.copy2(ROOT / "port/third_party/stb/LICENSE", lic / "stb_image.txt")
     shutil.copy2(ROOT / "port/third_party/lua/LICENSE", lic / "lua.txt")  # (the script mods)
     shutil.copy2(ROOT / "port/third_party/monocypher/LICENCE.md", lic / "monocypher.txt")  # (the update's signature check)
 
@@ -389,6 +392,9 @@ def main_mac():
     shutil.copy2(ROOT / "port/third_party/xxhash/LICENSE", lic / "xxhash.txt")
     shutil.copy2(ROOT / "port/third_party/miniaudio/LICENSE", lic / "miniaudio.txt")
     shutil.copy2(ROOT / "port/third_party/miniz/LICENSE", lic / "miniz.txt")
+    shutil.copy2(ROOT / "port/third_party/ufbx/LICENSE", lic / "ufbx.txt")  # (3D model import)
+    shutil.copy2(ROOT / "port/third_party/cgltf/LICENSE", lic / "cgltf.txt")
+    shutil.copy2(ROOT / "port/third_party/stb/LICENSE", lic / "stb_image.txt")
     shutil.copy2(ROOT / "port/third_party/lua/LICENSE", lic / "lua.txt")  # (the script mods)
     shutil.copy2(ROOT / "port/third_party/monocypher/LICENCE.md", lic / "monocypher.txt")  # (the update's signature check)
 
@@ -444,6 +450,9 @@ def main():
     shutil.copy2(ROOT / "port/third_party/xxhash/LICENSE", lic / "xxhash.txt")
     shutil.copy2(ROOT / "port/third_party/miniaudio/LICENSE", lic / "miniaudio.txt")
     shutil.copy2(ROOT / "port/third_party/miniz/LICENSE", lic / "miniz.txt")
+    shutil.copy2(ROOT / "port/third_party/ufbx/LICENSE", lic / "ufbx.txt")  # (3D model import)
+    shutil.copy2(ROOT / "port/third_party/cgltf/LICENSE", lic / "cgltf.txt")
+    shutil.copy2(ROOT / "port/third_party/stb/LICENSE", lic / "stb_image.txt")
     shutil.copy2(ROOT / "port/third_party/lua/LICENSE", lic / "lua.txt")  # (the script mods)
     shutil.copy2(ROOT / "port/third_party/monocypher/LICENCE.md", lic / "monocypher.txt")  # (the update's signature check)
 

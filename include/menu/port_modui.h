@@ -32,9 +32,16 @@
 #define MM_CROP 7
 #define MM_ART 8
 #define MM_REMOVED 9
+#define MM_STAGES 10  /* (port_modmgr3.c) */
+#define MM_SONGS 11
+#define MM_DISC 12
+#define MM_NUMBERS 13
+#define MM_MOVES 14
+#define MM_MOVESET 15
+#define MM_MODEL 16 /* a 3D model file is being added: its base fighter and fit */
 
 #define MM_LOOK_DELAY 36 /* frames the browser's cursor rests on a folder before it is looked into (a big one stalls) */
-#define MM_SORTS 4       /* the Library's orders: name, fighter, on first, priority */
+#define MM_SORTS 5       /* the Library's orders: name, fighter, on first, priority, newest added */
 #define MM_SHOWS 6       /* what it shows: all, on, off, replacements, new fighters, problems */
 
 typedef struct MmTex {
@@ -279,6 +286,9 @@ void Mx_Glow(f32 cx, f32 feet, f32 h, u32 c, s32 time);
 void Mx_Bolts(f32 cx, f32 feet, f32 h, s32 time);
 void Mx_Row(f32 x0, f32 y0, f32 x1, f32 y1, s32 sel, s32 alpha);
 void Mm_SetModel(f32 cx, f32 feet, f32 height);
+void Mm_ViewRelease(void); /* the viewer lets go of the model files (before they are written) */
+void Mm_Hand(s32 on);     /* 1: the viewer's model stays as it is turned, 0: it turns by itself */
+void Mm_TurnBy(f32 d);    /* turns it by hand */
 void Mm_SetExtra(s32 k, s32 ref, f32 cx, f32 feet, f32 height); /* a model beside it (k 0..1), this frame */
 void Mm_SetExtraMotion(s32 motion); /* the model motion (0..7) those play, this frame; -1 their stance */
 void Mm_ExtrasReload(void);     /* they are read again (their files changed) */
@@ -291,5 +301,23 @@ void Mm2_Draw(void);    /* panels */
 void Mm2_OpenBrowser(void);
 void Mm2_OpenDetail(void);
 void Mm2_Term(void);
+void Mm2_TextEntry(s32 which, s32 back, char *text, s32 max); /* the keyboard, for a line of another screen (Mm3_Typed answers) */
+void Mm2_OpenPicker(s32 what, s32 back, s32 now);             /* the fighters' picker (5, 6: Mm3_Picked answers) */
+
+/* port_modmgr3.c */
+void Mm3_OpenExtras(s32 which); /* the Stages (0) or Songs (1) tab */
+s32 Mm3_IsDisc(char *path);
+void Mm3_OpenDisc(char *path);
+s32 Mm3_IsModel(char *path); /* a 3D model file whose questions have not been answered yet */
+void Mm3_OpenModel(char *path, s32 from);
+void Mm3_OpenNumbers(void);
+void Mm3_OpenMoves(void);
+void Mm3_OpenMoveset(void);
+void Mm3_Picked(s32 what, s32 ref);
+void Mm3_Typed(s32 which, char *text);
+void Mm3_TabsMove(void);
+void Mm3_Update(s32 live);
+void Mm3_Draw(void);
+void Mm3_Term(void);
 
 #endif

@@ -135,7 +135,7 @@ static char *Search_Shown(void) {
     if (sMm->typing) {
         sprintf(line, "SEARCH: %s%s", sMm->search, Either((sMm->frames / 16) & 1, "_", " "));
     } else if (sMm->searchLen == 0) {
-        return "R1: SEARCH";
+        return sMm->mode == MM_BROWSER ? "R2: SEARCH" : "R1: SEARCH";
     } else {
         sprintf(line, "SEARCH: %s", sMm->search);
     }
@@ -369,7 +369,7 @@ static void Browser_Update(s32 live) {
 
         Port_DirGet(sMm->dirCur, &e);
         Mm_Prompt(0, sMm->dirCount > 0 && !e.isDir ? "USE PICTURE" : "OPEN");
-        Mm_Prompt(8, "SEARCH");
+        Mm_Prompt(5, "SEARCH");
         Mm_Prompt(2, "UP");
         Mm_Prompt(4, "CLOSE");
     } else {
@@ -381,14 +381,15 @@ static void Browser_Update(s32 live) {
         }
         if (sMm->dirCount > 0) {
             if (!e.isDir) {
-                Mm_Prompt(1, Is_Archive(e.name) ? "ADD THIS ARCHIVE" : "ADD ITS FOLDER");
+                Mm_Prompt(0, "ADD");
+                Mm_Prompt(1, Mm3_IsDisc(e.name) ? "PICK FROM THE DISC" : Is_Archive(e.name) ? "ADD THIS ARCHIVE" : "ADD ITS FOLDER");
             } else {
                 Mm_Prompt(1, sMm->dirLooked != sMm->dirCur ? "ADD" : sMm->dirIsMod == 1 ? "ADD THIS MOD" : sMm->dirIsMod == 2 ? "ADD EVERY FIGHTER" : "ADD ALL INSIDE");
             }
         }
-        Mm_Prompt(8, "SEARCH");
+        Mm_Prompt(5, "SEARCH");
+        Mm_Prompt(14, "TABS");
         Mm_Prompt(2, "UP");
-        Mm_Prompt(4, "CLOSE");
     }
     if (!live) {
         return;
@@ -422,8 +423,13 @@ static void Browser_Update(s32 live) {
         List_Move(&sMm->dirCur, &sMm->dirTop, sMm->dirCount, BR_ROWS);
         return;
     }
-    if (pad->gamePressed & PADG_R1) {
+    if (pad->gamePressed & PADG_R2) {
         Search_Open();
+        return;
+    }
+    if (sMm->browseWhat == 0 && (pad->gamePressed & (PADG_L1 | PADG_R1))) {
+        Str_Copy(sLastPath, sMm->path, 400);
+        Mm3_TabsMove();
         return;
     }
     List_Move(&sMm->dirCur, &sMm->dirTop, sMm->dirCount, BR_ROWS);
@@ -473,6 +479,9 @@ static void Browser_Update(s32 live) {
                 Mm_Note("CAN'T READ THAT PICTURE (USE PNG OR BMP)");
                 Snd_PlaySe(1, 2);
             }
+        } else if (sMm->path[0] != 0) { /* a file of the Importer: added (a disc image: what to take is picked) */
+            Browser_Full(sMm->dirCur);
+            Mm_StartImport(sFull, 1, 2);
         }
     } else if (sMm->dirCount > 0 && sMm->browseWhat == 0 && ((pad->gamePressed | typed) & PADG_SQUARE)) {
         Browser_Full(sMm->dirCur);
@@ -506,7 +515,7 @@ static void Search_Draw(f32 x0, f32 y0, f32 x1, f32 y1) {
     if (sMm->typing) {
         Mx_Frame(x0 + 8.0f, y0 + 3.0f, x1 - 8.0f, y1 - 3.0f, 1.5f, Mx_Rgba(0xFF, 0xC8, 0x40, 0x60));
     }
-    Mx_TextC(x0 + 22.0f, cy, "R1: SEARCH", cap, 0.0f, Mx_Rgba(0xE0, 0xD0, 0xFF, 0x80), Mx_Rgba(0xB8, 0xA0, 0xF0, 0x80), Mx_Rgba(0x20, 0x10, 0x48, 0x80), 0, 0x80);
+    Mx_TextC(x0 + 22.0f, cy, sMm->mode == MM_BROWSER ? "R2: SEARCH" : "R1: SEARCH", cap, 0.0f, Mx_Rgba(0xE0, 0xD0, 0xFF, 0x80), Mx_Rgba(0xB8, 0xA0, 0xF0, 0x80), Mx_Rgba(0x20, 0x10, 0x48, 0x80), 0, 0x80);
     w = Mx_TextW("R1: SEARCH", cap) + 34.0f;
     sprintf(line, "%s%s", sMm->search, sMm->typing && ((sMm->frames / 16) & 1) ? "_" : "");
     Mx_Text(x0 + w, cy, line, cap, x1 - x0 - w - 20.0f, MX_WHITE, 0);
@@ -651,13 +660,17 @@ static char *Det_About(s32 part) {
 /* The longest a line of the keyboard may be: the name and the title as the select screens have room, the maker's
    lines as the library keeps them. */
 static void Kb_Save(void) {
+    if (sMm->keyWhich >= 5) {
+        Mm3_Typed(sMm->keyWhich, sMm->keyText);
+        return;
+    }
     Port_ModSetText(sMm->cur, sMm->keyWhich, sMm->keyText);
     sDetAboutOf = -1; /* (the maker's lines read again, here and in the Library) */
     sMm->aboutOf = -1;
 }
 
 static s32 Kb_Max(void) {
-    return sMm->keyWhich == 2 ? 31 : sMm->keyWhich == 3 ? 15 : sMm->keyWhich == 4 ? 199 : 30;
+    return sMm->keyWhich >= 5 ? 56 : sMm->keyWhich == 2 ? 31 : sMm->keyWhich == 3 ? 15 : sMm->keyWhich == 4 ? 199 : 30;
 }
 
 void Mm2_OpenDetail(void) {
@@ -672,12 +685,12 @@ static void Picker_Open(s32 what, s32 back, s32 now) {
     s32 n = 0;
     s32 i;
 
-    if (what == 2 || what == 4) {
+    if (what == 2 || what == 4 || what == 5) { /* (5: none is "added as a new fighter") */
         sMm->pickRef[n++] = -1;
     }
-    if (what == 1 || what == 2) { /* the new fighters first */
+    if (what == 1 || what == 2 || what == 6) { /* the new fighters first */
         for (i = 0; i < sMm->count; i++) {
-            if (sMm->info[i].isNew && sMm->info[i].on) { /* (new fighters can be targets and results of anyone) */
+            if ((sMm->info[i].isNew && sMm->info[i].on) || (what == 6 && sMm->info[i].isNew)) { /* (new fighters can be targets and results of anyone) */
                 sMm->pickRef[n++] = PORT_REF_MOD + i;
             }
         }
@@ -708,6 +721,10 @@ static void Picker_Open(s32 what, s32 back, s32 now) {
     Mm_SetMode(MM_PICKER);
 }
 
+void Mm2_OpenPicker(s32 what, s32 back, s32 now) {
+    Picker_Open(what, back, now);
+}
+
 static void Keyboard_Open(s32 which) {
     PortModInfo *m = &sMm->info[sMm->cur];
 
@@ -718,6 +735,17 @@ static void Keyboard_Open(s32 which) {
     sMm->keyLower = 0;
     sMm->keyWhich = which;
     sMm->back = MM_DETAIL;
+    Mm_SetMode(MM_KEYBOARD);
+}
+
+void Mm2_TextEntry(s32 which, s32 back, char *text, s32 max) {
+    Str_Copy(sMm->keyText, text, max < 208 ? max : 208);
+    sMm->keyLen = Str_Len(sMm->keyText);
+    sMm->keyCol = 0;
+    sMm->keyRow = 0;
+    sMm->keyLower = 0;
+    sMm->keyWhich = which;
+    sMm->back = back;
     Mm_SetMode(MM_KEYBOARD);
 }
 
@@ -821,9 +849,13 @@ static void Detail_Draw(void) {
     PortModInfo *m = &sMm->info[sMm->cur];
     s32 row;
 
-    Mx_Text(640.0f, 52.0f, "EDIT MOD", 28.0f, 0.0f, MX_GOLD, 1);
     Mx_Box(MM_FIELD, 535.0f, 84.0f, 1315.0f, 128.0f, 22.0f, 0x80);
-    Mx_Text(560.0f, 106.0f, m->name, 30.0f, 730.0f, MX_GOLD, 0);
+    { /* (in the bar: above it is where the four tabs are) */
+        f32 lw = Mx_TextW("EDIT MOD", 22.0f) + 22.0f;
+
+        Mx_Text(560.0f, 106.0f, "EDIT MOD", 22.0f, 0.0f, MX_CYAN, 0);
+        Mx_Text(560.0f + lw, 106.0f, m->name, 30.0f, 730.0f - lw, MX_GOLD, 0);
+    }
     for (row = 0; row < DET_ROWS; row++) {
         f32 y0 = 158.0f + 50.0f * (f32)row;
         f32 cy = y0 + 22.0f;
@@ -917,6 +949,9 @@ static void Picker_Choose(s32 ref) {
             sprintf(note, "TEST FIGHTS: VS %.40s", Mm_RefName(ref));
             Mm_Note(note);
         }
+        break;
+    default:
+        Mm3_Picked(sMm->pickWhat, ref);
         break;
     }
 }
@@ -1172,7 +1207,7 @@ static void Keyboard_Draw(void) {
     static char one[2];
     static char shown[216];
     static char lines[4][64];
-    static char *tab[5] = {"NAME", "TITLE", "AUTHOR", "VERSION", "ABOUT"};
+    static char *tab[9] = {"NAME", "TITLE", "AUTHOR", "VERSION", "ABOUT", "NAME", "NAME", "MOVE", "VALUE"};
     static char count[16];
     PortModInfo *m = &sMm->info[sMm->cur];
     s32 r;
@@ -1218,7 +1253,7 @@ static void Keyboard_Draw(void) {
             Mx_Text(1098.0f, 462.0f + 25.0f * ((f32)r - (f32)(n - 1) * 0.5f), lines[r], 22.0f, 360.0f, MX_WHITE, 1);
         }
     } else if (sMm->keyWhich >= 2) {
-        Mx_Text(1098.0f, 446.0f, sMm->keyWhich == 2 ? "BY" : "VERSION", 22.0f, 330.0f, MX_CYAN, 1);
+        Mx_Text(1098.0f, 446.0f, sMm->keyWhich == 2 ? "BY" : sMm->keyWhich == 3 ? "VERSION" : tab[sMm->keyWhich], 22.0f, 330.0f, MX_CYAN, 1);
         Mx_Text(1098.0f, 482.0f, sMm->keyLen > 0 ? sMm->keyText : "(none)", 30.0f, 330.0f, MX_GOLD, 1);
     } else if (sMm->keyWhich == 0) {
         Mx_Heading(1098.0f, 462.0f, sMm->keyLen > 0 ? sMm->keyText : m->chara >= 0 ? m->target : m->name, 46.0f, 330.0f, 1);
@@ -1226,7 +1261,7 @@ static void Keyboard_Draw(void) {
         Mx_Heading(1098.0f, 446.0f, m->white[0] != 0 ? m->white : m->chara >= 0 ? m->target : m->name, 34.0f, 330.0f, 1);
         Mx_Text(1098.0f, 489.0f, sMm->keyLen > 0 ? sMm->keyText : "(none)", 24.0f, 330.0f, MX_GOLD, 1);
     }
-    Mx_Say(688.0f, 657.0f, sMm->keyWhich >= 2 ? "Or use your keyboard: Enter saves, Esc cancels. Saved in the mod's mod.txt, shown in the Library."
+    Mx_Say(688.0f, 657.0f, sMm->keyWhich >= 5 ? "Or use your keyboard: Enter saves, Esc cancels." : sMm->keyWhich >= 2 ? "Or use your keyboard: Enter saves, Esc cancels. Saved in the mod's mod.txt, shown in the Library."
                                                 : "Or use your keyboard: Enter saves, Esc cancels. Leave it empty to use the fighter's own name.",
             24.0f, 1260.0f, MX_DARK, 1);
 }
@@ -1644,16 +1679,6 @@ static void Roster_Update(s32 live) {
     if (!live) {
         return;
     }
-    if (pad->gamePressed & PADG_L1) {
-        Snd_PlaySe(1, 0);
-        Mm_SetMode(MM_LIBRARY);
-        return;
-    }
-    if (pad->gamePressed & PADG_R1) {
-        Snd_PlaySe(1, 0);
-        Mm_SetMode(MM_TRANSFORM);
-        return;
-    }
     if (pad->gamePressed & PADG_TRIANGLE) {
         Snd_PlaySe(1, 2);
         Mm_SetMode(MM_LIBRARY);
@@ -1784,9 +1809,9 @@ static void Roster_Draw(void) {
 static char *sTrFuseType[3] = {"-", "FUSION DANCE", "POTARA"};
 
 /* The kind of change (+0xA0), as the FORMS screen names it. */
-static char *sTrKind[5] = {"POWER UP", "BACK TO BASE", "GREAT APE", "ABSORB (CELL)", "MACHINE MERGE (PILAF)"};
+static char *sTrKind[5] = {"POWER UP", "BACK TO BASE", "GREAT APE", "WITH AN OBJECT, AS CELL ABSORBS (TEST IT)", "LONG SCENE, AS PILAF'S MACHINES (TEST IT)"};
 static const s8 sTrKindAura[5] = {2, 1, 4, 7, 0}; /* (the aura a kind starts with when it is chosen) */
-#define TR_KINDS 3 /* the kinds offered: absorption (Cell) and machine merge (Pilaf) do not work for a mod yet */
+#define TR_KINDS 5 /* (the last two ask for animations of their own: a fighter without them may not play them right) */
 
 static char *sTrDir[4] = {"LEFT + R3", "UP + R3", "RIGHT + R3", "DOWN + R3"};
 static char *sTrHold[3] = {"LEFT + HOLD R3", "UP + HOLD R3", "RIGHT + HOLD R3"}; /* (fusions: the skill list marks them held) */
@@ -2442,16 +2467,6 @@ static void Trans_Update(s32 live) {
         }
         return;
     }
-    if (pad->gamePressed & PADG_L1) {
-        Snd_PlaySe(1, 0);
-        Mm_SetMode(MM_ROSTER);
-        return;
-    }
-    if (pad->gamePressed & PADG_R1) {
-        Snd_PlaySe(1, 0);
-        Mm_SetMode(MM_LIBRARY);
-        return;
-    }
     if (pad->gamePressed & PADG_TRIANGLE) {
         Snd_PlaySe(1, 2);
         Mm_SetMode(MM_LIBRARY);
@@ -2920,6 +2935,9 @@ void Mm2_Update(s32 live) {
     case MM_ART:
         Art_Update(live);
         break;
+    default:
+        Mm3_Update(live);
+        break;
     }
 }
 
@@ -2951,6 +2969,9 @@ void Mm2_Draw(void) {
         break;
     case MM_ART:
         Art_Draw();
+        break;
+    default:
+        Mm3_Draw();
         break;
     }
 }

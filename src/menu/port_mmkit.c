@@ -679,7 +679,7 @@ void Mx_Background(s32 dusk) {
     Ps_SpriteScreen(dusk ? MM_BG_DUSK : MM_BG, 0.0f, 0.0f, 512.0f, 448.0f, 0.0f, 0.0f, 1.0f, 1.0f, PS_PLAIN, 0x80);
 }
 
-static char *sMxTab[3] = {"LIBRARY", "MOD GRID", "FORMS"};
+static char *sMxTab[4] = {"CHARACTERS", "STAGES", "SONGS", "IMPORTER"};
 
 /* The heading's window of every menu of the game (IconWin, battle/view_a_c.c): the cloud swirls in the corners and the
    line under the title, with their own entrance; made from the Duel menu's data as Tenkaichi Budokai Online's
@@ -816,25 +816,25 @@ void Mx_Chrome(char *title, s32 tab, f32 drop) {
     if (tab == -2) {
         return;
     }
-    { /* laid from the right edge leftwards: R1, the three tabs, L1 */
-        f32 w[3];
+    { /* laid from the right edge leftwards: R1, the four tabs, L1 */
+        f32 w[4];
         f32 all = Mx_ButtonW(8, 34.0f) + Mx_ButtonW(9, 34.0f) + 32.0f;
 
-        for (k = 0; k < 3; k++) {
-            w[k] = Mx_TextW(sMxTab[k], 25.0f) + 40.0f;
-            w[k] = w[k] < 120.0f ? 120.0f : w[k];
+        for (k = 0; k < 4; k++) {
+            w[k] = Mx_TextW(sMxTab[k], 21.0f) + 26.0f;
+            w[k] = w[k] < 96.0f ? 96.0f : w[k];
             all += w[k];
         }
         x = 1366.0f - all;
         Mx_Button(9, x, 54.0f + drop, 34.0f);
         x += Mx_ButtonW(9, 34.0f) + 8.0f;
-        for (k = 0; k < 3; k++) {
+        for (k = 0; k < 4; k++) {
             if (k == tab) {
                 Mx_Bar(MM_TAB_SEL, x, 33.0f + drop, x + w[k], 76.0f + drop, 0x80);
-                Mx_TextC(x + w[k] * 0.5f, 54.0f + drop, sMxTab[k], 25.0f, w[k] - 24.0f, Mx_Rgba(0xFF, 0xF2, 0xB8, 0x80), Mx_Rgba(0xFF, 0xD0, 0x60, 0x80), Mx_Rgba(0x5C, 0x30, 0x08, 0x80), 1, 0x80);
+                Mx_TextC(x + w[k] * 0.5f, 54.0f + drop, sMxTab[k], 21.0f, w[k] - 14.0f, Mx_Rgba(0xFF, 0xF2, 0xB8, 0x80), Mx_Rgba(0xFF, 0xD0, 0x60, 0x80), Mx_Rgba(0x5C, 0x30, 0x08, 0x80), 1, 0x80);
             } else {
                 Mx_BarTint(MM_TAB, x, 35.0f + drop, x + w[k], 74.0f + drop, Mx_Rgba(0x66, 0x5C, 0x80, 0x80), tab == -1 ? 0x60 : 0x80);
-                Mx_TextC(x + w[k] * 0.5f, 54.0f + drop, sMxTab[k], 25.0f, w[k] - 24.0f, Mx_Rgba(0xE8, 0xDC, 0xFF, 0x80), Mx_Rgba(0xC8, 0xB8, 0xF8, 0x80), Mx_Rgba(0x34, 0x18, 0x60, 0x80), 1,
+                Mx_TextC(x + w[k] * 0.5f, 54.0f + drop, sMxTab[k], 21.0f, w[k] - 14.0f, Mx_Rgba(0xE8, 0xDC, 0xFF, 0x80), Mx_Rgba(0xC8, 0xB8, 0xF8, 0x80), Mx_Rgba(0x34, 0x18, 0x60, 0x80), 1,
                          tab == -1 ? 0x60 : 0x80);
             }
             x += w[k] + 8.0f;

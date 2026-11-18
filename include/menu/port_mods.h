@@ -31,6 +31,7 @@ typedef struct PortModInfo {
     s32 charas;   /* how many fighters it has files of (a folder looked at: more than one is a batch) */
     s32 artH;     /* the portrait's height in percent (art[3] its width) */
     s32 charaList[8]; /* the fighters it has files of (a batch: each one) */
+    s32 added;    /* when its folder was made, seconds since 1970 (0 unknown): the "newest added" order */
 } PortModInfo;
 
 /* A fighter's transformations and fusions (the same layout in port/src/plat_mods.c): every field of its parameter
@@ -70,6 +71,9 @@ extern void Port_ModGetInfo(s32 i, PortModInfo *out);
 extern s32 Port_ModToggle(s32 i); /* the first mod it switched off (same fighter, same files), -1 none */
 extern void Port_ModPreview(s32 i); /* -1 none, -2 the folder the browser looked at */
 extern void Port_ModRescan(void);
+extern void Port_ModEnter(void);    /* the manager opens: the list, read again only if the folder changed */
+extern void Port_ModFlush(void);    /* what was switched is taken up by the game */
+extern void Port_ModBatch(s32 on);  /* many switches in a row: the order is written after the last */
 extern s32 Port_ModRemove(s32 i);
 extern void Port_ModSet(s32 i, s32 field, s32 value); /* 0 new, 1 template, 2 target, 3..5 chip x / y / size */
 extern void Port_ModSetText(s32 i, s32 which, char *str); /* 0 white, 1 yellow */
@@ -79,7 +83,15 @@ extern s32 Port_ModImport(char *path);
 extern s32 Port_ModPortrait(s32 i, void *out, s32 max);
 extern void PortMods_PatchSelect(void *names, void *forms, u32 *chips); /* src/menu/port_modmgr2.c */
 extern s32 Port_ModImportAll(char *path); /* every character mod in a folder (or the folder itself); how many */
-extern s32 Port_ModImportInfo(s32 *skipped); /* after an import: the first mod added (-1 none, -2 the library's own folder, -3 an archive not unpacked); how many were in it already */
+extern s32 Port_ModImportInfo(s32 *skipped); /* after an import: the first mod added (-1 none, -2 the library's own folder, -3 an archive not unpacked, -4 a 3D model not made); how many were in it already */
+extern s32 Port_MiIsModel(char *path);     /* a 3D model file (FBX, OBJ, glTF) that can be made into a fighter */
+extern void Port_MiSet(s32 base, s32 fit); /* for the next one: the disc fighter it builds on; 1 = the skeleton takes the mesh's proportions */
+extern void Port_MiOpt(s32 which, s32 value); /* the owner's choices for the next one (0 up, 1 facing, 2 mirror, 3 size, 4 arms, 5 shoulder, 6 waist, 7 neck, 8 textures, 9 rig); 0 = automatic */
+extern s32 Port_MiOptGet(s32 which);
+extern s32 Port_MiTestStart(char *path);        /* builds the model into a staging package to look at; 0 when one is still running */
+extern s32 Port_MiTestPoll(char *info, s32 max); /* 0 none, 1 working, 2 done (info: what was found, "|", what was made), 3 failed (why) */
+extern s32 Port_MiTestLook(s32 *chara);          /* after 2: the preview source is the staging package; its fighter. 0: no */
+extern void Port_MiTestEnd(void);                /* the staging package goes */
 extern s32 Port_ModImportStart(char *path, s32 all); /* adds on a thread of its own: 0 one runs already */
 extern s32 Port_ModImportPoll(s32 *progress); /* files done, of how many, what (0 looks 1 unpacks 2 copies); 0 none 1 runs 2 just done */
 extern s32 Port_ModImportResult(void);         /* how many the last import added */
