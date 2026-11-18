@@ -200,7 +200,7 @@ typedef struct UbTeamSel {
     /* 0x0378 */ s32 gridCount;
     /* 0x037C */ UbCell *grid;
     /* 0x0380 */ s32 gridOutCount;
-    /* 0x0384 */ UbCell gridBuf[UB_CELL_MAX];
+    /* 0x0384 */ UbCell gridBuf[PORT_GRID_CELLS];
     /* 0x1AB8 */ s32 rows;           /* grid rows */
     /* 0x1ABC */ s32 plateCount;     /* item-set plates that can be chosen */
     /* 0x1AC0 */ s32 colorCount;     /* costumes of the character */

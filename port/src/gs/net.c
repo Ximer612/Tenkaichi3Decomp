@@ -3250,6 +3250,8 @@ void Port_NetLeave(void) {
         fflush(NULL);
         exit(0);
     }
+    /* (also for a program that was started for its session, from the environment: it has no game of the player's
+       own kept, and going "back" to one put a state that was never saved in place: a crash at the session's end) */
     relaunch(0, NULL, 0);
 }
 

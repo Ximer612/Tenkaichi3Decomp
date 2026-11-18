@@ -204,7 +204,7 @@ typedef struct Bracket {
     /* 0x02F4 */ s32 gridCount;
     /* 0x02F8 */ BrkCell *grid;
     /* 0x02FC */ s32 gridOutCount;
-    /* 0x0300 */ BrkCell gridBuf[BRK_CELL_MAX];
+    /* 0x0300 */ BrkCell gridBuf[PORT_GRID_CELLS];
     /* 0x1A34 */ s32 timer;          /* frames until the fade out starts */
     /* 0x1A38 */ s32 started;        /* the opening step was chosen once the fade in ended */
     /* 0x1A3C */ s32 seq;            /* step of Bracket_UpdateSeq, 0 = idle */

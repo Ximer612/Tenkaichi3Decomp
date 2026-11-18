@@ -87,6 +87,11 @@ extern void ItemHelp_Init(void *data);
 extern void ItemHelp_Term(void);
 extern void ItemHelp_Draw(s32 arg);
 
+/* PC build: an added character's own chip, large picture and name where its folder has them (include/port_chara.h,
+   port/src/plat_charas.c); the base character's otherwise, and the disc's for every other id. */
+#define CS_CHIP(id) ((MTexRes *)PORT_CHIP(gCharSel->chipPack, id))
+#define CS_NAME_LINE(c) PORT_NAME_LINE(c)
+
 /* The six chips of the stage reel show the cursor's row of the stage grid. */
 void CharSel_SetStageChips(void) {
     s32 slot[6] = { 8, 11, 12, 13, 14, 15 };
@@ -113,6 +118,12 @@ void CharSel_SetStageChips(void) {
                 icon = id + 1;
             }
             res = (MTexRes *)MPACK_AT(gCharSel->stagePack, icon);
+            if (id >= 0x24 && id < STGGRID_ID_LOCKED) { /* (its own icon, where its file brought one) */
+                extern void *PortStageIcons_Get(int id); /* port/src/plat_stages.c */
+                if (PortStageIcons_Get(id) != NULL) {
+                    res = (MTexRes *)PortStageIcons_Get(id);
+                }
+            }
         }
 #else
         res = (MTexRes *)MPACK_AT(gCharSel->stagePack, id + 1);
@@ -133,7 +144,7 @@ void CharSel_SetRowChips(s32 side) {
 
         gCharSel->side[side]->prevChip[i] = gCharSel->side[side]->chip[i];
         gCharSel->side[side]->chip[i] = id;
-        res = (MTexRes *)MPACK_AT(gCharSel->chipPack, id + 1);
+        res = CS_CHIP(id);
         gCharSel->sideTex[side][18 + i] = gCharSel->sideTex[side][slot[i]];
         gCharSel->sideTex[side][slot[i]] = res->tex;
     }
@@ -155,7 +166,7 @@ void CharSel_SetCellFormChips(s32 side) {
         }
         gCharSel->side[side]->prevChip[i] = gCharSel->side[side]->chip[i];
         gCharSel->side[side]->chip[i] = id;
-        res = (MTexRes *)MPACK_AT(gCharSel->chipPack, id + 1);
+        res = CS_CHIP(id);
         gCharSel->sideTex[side][18 + i] = gCharSel->sideTex[side][slot[i]];
         gCharSel->sideTex[side][slot[i]] = res->tex;
     }
@@ -172,7 +183,7 @@ void CharSel_SetCustomChips(s32 side) {
 
         gCharSel->side[side]->prevChip[i] = gCharSel->side[side]->chip[i];
         gCharSel->side[side]->chip[i] = id;
-        res = (MTexRes *)MPACK_AT(gCharSel->chipPack, id + 1);
+        res = CS_CHIP(id);
         gCharSel->sideTex[side][18 + i] = gCharSel->sideTex[side][slot[i]];
         gCharSel->sideTex[side][slot[i]] = res->tex;
     }
@@ -194,7 +205,7 @@ void CharSel_SetFormChips(s32 side) {
         }
         gCharSel->side[side]->prevChip[i] = gCharSel->side[side]->chip[i];
         gCharSel->side[side]->chip[i] = id;
-        res = (MTexRes *)MPACK_AT(gCharSel->chipPack, id + 1);
+        res = CS_CHIP(id);
         gCharSel->sideTex[side][18 + i] = gCharSel->sideTex[side][slot[i]];
         gCharSel->sideTex[side][slot[i]] = res->tex;
     }
@@ -219,7 +230,7 @@ void CharSel_UpdateFaceLoad(void) {
         break;
     case CHARSEL_LOAD_REQUEST:
         File_CancelRequests();
-        File_Request(gCharSel->side[gCharSel->faceSide]->chara + CHARSEL_FACE_FILE,
+        File_Request(CHARA_FACE_FILE(gCharSel->side[gCharSel->faceSide]->chara),
                      gCharSel->faceFile[gCharSel->faceSide], 0x16800);
         gCharSel->faceState = CHARSEL_LOAD_READ;
         break;
@@ -387,8 +398,8 @@ void CharSel_Init(s32 section) {
     s32 stageRows;
     void *data;
 
-    gCharSel = Heap_Alloc(0x3A4C, 0x20, 0, 2);
-    memset(gCharSel, 0, 0x3A4C);
+    gCharSel = Heap_Alloc(sizeof(CharSel), 0x20, 0, 2);
+    memset(gCharSel, 0, sizeof(CharSel));
     if (gProgress->mode == 0x2D) {
         gCharSel->pack = (u32 *)MPACK_AT(gMenuArc6, section);
         gCharSel->res = Sprite_Unpack(gCharSel->pack, NULL, NULL);
@@ -529,15 +540,30 @@ void CharSel_Init(s32 section) {
     gCharSel->unk3A48 = MPACK_AT(gCommonRes->data[2], 2);
 
     gCharSel->nameText = MPACK_AT(gCharSel->res, 43);
+#ifdef PORT /* (the names of added characters after the disc's) */
+    gCharSel->nameText = Port_CharaNamePack(gCharSel->nameText);
+#endif
     gCharSel->formText = MPACK_AT(gCharSel->res, 44);
+#ifdef PORT /* (a line more for every added character: its own label) */
+    gCharSel->formText = Port_CharaFormPack(gCharSel->formText);
+#endif
     gCharSel->chipPack = (u32 *)MPACK_AT(gCharSel->res, 45);
     for (i = 0; i < MCHR_CELL_MAX; i++) {
         CS_RES(gCharSel->chipPack, i + 1);
     }
+#ifdef PORT /* (the added characters' own chips, made ready like the disc's) */
+    PortChips_Load(gCharSel->chipPack);
+#endif
     gCharSel->stagePack = (u32 *)MPACK_AT(gCharSel->res, 46);
     for (i = 0; i < 38; i++) {
         CS_RES(gCharSel->stagePack, i + 1);
     }
+#ifdef PORT /* (the added stages' own icons) */
+    {
+        extern void PortStageIcons_Load(void); /* port/src/plat_stages.c */
+        PortStageIcons_Load();
+    }
+#endif
 
     gCharSel->stageIds = (s32 *)(MPACK_AT(gCharSel->res, 39) + 0x10);
     gCharSel->stageCount = MPACK_WORD(gCharSel->res, 39);
@@ -696,6 +722,24 @@ void CharSel_Init(s32 section) {
     gCharSel->stage = &gCharSel->stageData;
     *(CharSelPick *)gCharSel->side[0] = CSPROG->side[0].pick;
     *(CharSelPick *)gCharSel->side[1] = CSPROG->side[1].pick;
+#ifdef PORT
+    {
+        /* PC build, testing (BT3_TEST_CELL): side 0's cursor starts on the first added character's cell (with
+           BT3_TEST_CELL=disc:<id>, on that character of the disc), so that a recorded session that only confirms
+           chooses it. */
+        extern int Port_TestCell(void);
+        extern int Port_TestCellIs(int id);
+        s32 k;
+        for (k = 0; Port_TestCell() && k < gCharSel->cellCount[0]; k++) {
+            if (Port_TestCellIs(gCharSel->cells[0][k].id)) {
+                memset(gCharSel->side[0], 0, 0x30);
+                gCharSel->side[0]->col = k % MCHR_COLS;
+                gCharSel->side[0]->row = k / MCHR_COLS;
+                break;
+            }
+        }
+    }
+#endif
     gCharSel->players = CSPROG->players;
     stageCols = 6;
     stageRows = 6;
@@ -708,7 +752,8 @@ void CharSel_Init(s32 section) {
     }
     gCharSel->faceState = CHARSEL_LOAD_IDLE;
     for (i = 0; i < CHARSEL_SIDES; i++) {
-        if (!ChrGrid_IsSelectable(gCharSel->cells[i], gCharSel->side[i]->col + gCharSel->side[i]->row * 7)) {
+        if (!PORT_CELL_IN(gCharSel->side[i]->col + gCharSel->side[i]->row * 7, gCharSel->cellCount[i]) ||
+            !ChrGrid_IsSelectable(gCharSel->cells[i], gCharSel->side[i]->col + gCharSel->side[i]->row * 7)) {
             memset(gCharSel->side[i], 0, 0x30);
             gCharSel->side[i]->col = i;
             CSPROG->side[i].pick = *(CharSelPick *)gCharSel->side[i];
@@ -728,7 +773,7 @@ void CharSel_Init(s32 section) {
     gCharSel->stage->bgmPlaying = gCharSel->stage->bgm;
 
     for (i = 0; i < CHARSEL_SIDES; i++) {
-        File_LoadSync(gCharSel->side[i]->chara + CHARSEL_FACE_FILE, gCharSel->faceFile[i], 0x16800);
+        File_LoadSync(CHARA_FACE_FILE(gCharSel->side[i]->chara), gCharSel->faceFile[i], 0x16800);
         Sprite_Unpack(gCharSel->faceFile[i], gCharSel->faceRes[i], NULL);
         res = gCharSel->faceRes[i];
         Res_RelocateOffsets(&res, res, res);
@@ -775,6 +820,13 @@ void CharSel_Term(void) {
     for (i = 0; i < CHARSEL_FLASH_NUM; i++) {
         Flash_Destroy(&gCharSel->flash[i]);
     }
+#ifdef PORT /* (the folders' chips, the added stages' icons) */
+    PortChips_Free();
+    {
+        extern void PortStageIcons_Free(void);
+        PortStageIcons_Free();
+    }
+#endif
     if (gCharSel->stageRes[1] != NULL) {
         Heap_Free(gCharSel->stageRes[1]);
         gCharSel->stageRes[1] = NULL;
@@ -886,9 +938,9 @@ void CharSel_Draw(void) {
         Flash_ClipSetAlpha(f, &ref, gCharSel->faceAlpha[i]);
         Flash_ClipSetFlags(f, &ref, 0x80, (u8)gCharSel->faceMask);
         Flash_FindLabel(f, NULL, i ? "mc_name_text_r" : "mc_name_text_l", &ref);
-        TextBox_AttachLine(f, &ref, 0, 0, gCharSel->side[i]->chara, &gCharSel->nameBox[i]);
+        TextBox_AttachLine(f, &ref, 0, 0, CS_NAME_LINE(gCharSel->side[i]->chara), &gCharSel->nameBox[i]);
         Flash_FindLabel(f, NULL, i ? "mc_form_text_r" : "mc_form_text_l", &ref);
-        TextBox_AttachLine(f, &ref, 0, 0, gCharSel->side[i]->chara, &gCharSel->formBox[i]);
+        TextBox_AttachLine(f, &ref, 0, 0, PORT_FORM_LINE(gCharSel->side[i]->chara), &gCharSel->formBox[i]);
     }
 
     uv.x0 = 0;
@@ -1268,6 +1320,50 @@ void CharSel_Update(void) {
    starts both arms with `move a1,a2`, while this compiles with `move a1,a2` in the delay slot and the `lui` at
    the start of each arm. Everything else, including every branch, is the original's code. */
 #ifdef PORT
+/* PC build: the Mod Fighters grid (src/menu/port_modmgr2.c, PortModGrid_Pick), opened with square on the grid of a
+   side: the added characters that are on, with their model and costumes. A fighter picked there is taken as if the
+   cursor had been moved onto its cell (or the cell it is a form under) and cross pressed (the next frame), with the
+   costume chosen there: the select then goes on as it does. */
+extern s32 PortModGrid_Pick(s32 padNo, s32 *chara, s32 *code);
+extern s32 Port_SkinCount(void);
+extern int Port_NetSession(void);
+static s32 sPortGridCross[CHARSEL_SIDES]; /* (cross for this side on its next frame) */
+static s32 sPortGridCostume[CHARSEL_SIDES];
+
+static s32 CharSel_PortGrid(s32 pad, s32 n) {
+    s32 id;
+    s32 costume;
+    s32 r;
+    s32 c;
+    s32 f;
+
+    if (!PortModGrid_Pick(pad, &id, &costume)) {
+        return 0;
+    }
+    for (r = 0; r < gCharSel->rows[n]; r++) {
+        for (c = 0; c < 7; c++) {
+            MChrCell *cell = &gCharSel->cells[n][c + r * 7];
+            s32 hit = cell->id == id;
+
+            for (f = 0; !hit && f < cell->formCount && f < 7; f++) {
+                hit = cell->form[f] == id;
+            }
+            if (hit) {
+                CharSel_ClipGoto(n + 1, n, CHARSEL_CLIP_CHIP, "fl_off_start");
+                gCharSel->side[n]->col = c;
+                gCharSel->side[n]->row = r;
+                CharSel_ClipGoto(n + 1, n, CHARSEL_CLIP_CHIP, "fl_on_start");
+                CharSel_SetRowChips(n);
+                gCharSel->side[n]->chara = gCharSel->side[n]->chip[c];
+                CharSel_RequestFace(n);
+                sPortGridCostume[n] = costume;
+                return 1;
+            }
+        }
+    }
+    return 0; /* (no cell has it: not on this screen) */
+}
+
 /* A lobby's match (port/src/gs/net_lobby.c): going back from the character select is its owner's way back to the
    lobby (the session ends for everyone, as "Back to the Lobby" in a fight); the other player's triangle does
    nothing there. The owner's side travels with the rules, so every copy decides the same. */
@@ -1460,6 +1556,19 @@ void CharSel_Input(s32 *running) {
         }
         switch (CS_SIDE->state) {
         case CHARSEL_ST_GRID:
+#ifdef PORT
+            if (sPortGridCross[CS_N]) { /* (a fighter picked on the Mod Fighters grid: taken as cross on its cell) */
+                sPortGridCross[CS_N] = 0;
+                gPad[i].gamePressed |= PADG_CROSS;
+                gPad[i].gameRepeat = 0;
+            } else if ((gPad[i].gamePressed & PADG_SQUARE) && !Port_NetSession() && Port_SkinCount() > 0) {
+                if (CharSel_PortGrid(i, CS_N)) {
+                    sPortGridCross[CS_N] = 1;
+                    Snd_PlaySe(1, 1);
+                }
+                continue;
+            }
+#endif
             if (gPad[i].gameRepeat & 1) {
                 CharSel_ClipGoto(CS_N + 1, CS_N, CHARSEL_CLIP_CHIP, "fl_off_start");
                 ChrGrid_MoveLeft(gCharSel->cells[CS_N], &CS_SIDE->col, CS_SIDE->row);
@@ -1546,6 +1655,20 @@ void CharSel_Input(s32 *running) {
                     Flash_GotoLabel(CS_PLATE, "fl_custom_in", 1);
                     CharSel_ClipGoto(CS_N + 1, CS_N, CHARSEL_CLIP_CHIP, "fl_ok");
                     gCharSel->customRows[CS_N] = 4;
+#ifdef PORT
+                    /* PC build: an added character has no item sets. They are kept in the save by the cell's place
+                       in the grid, 97 places, and its cell is past them. */
+                    if (PORT_CHARA_ADDED(CS_SIDE->chara)) {
+                        gCharSel->customRows[CS_N] = 1;
+                        CS_SIDE->customPlate = 0;
+                    }
+#endif
+#ifdef PORT
+                    if (sPortGridCostume[CS_N] > 0) { /* (the costume chosen on the Mod Fighters grid) */
+                        CS_SIDE->colorPlate = sPortGridCostume[CS_N];
+                    }
+                    sPortGridCostume[CS_N] = 0;
+#endif
                     gCharSel->colorCount[CS_N] = ChrTbl_WrapCostume(CS_SIDE->chara, &CS_SIDE->colorPlate);
                     CharSel_ClipGoto(CS_N + 3, CS_N, CHARSEL_CLIP_CUSTOM_PLATE, "fl_on_start");
                     CS_SIDE->state = CHARSEL_ST_ITEMSET;
@@ -1611,6 +1734,12 @@ void CharSel_Input(s32 *running) {
                     gCharSel->customRows[CS_N] = 4;
                 }
                 CharSel_ClipGoto(CS_N + 3, CS_N, CHARSEL_CLIP_CUSTOM_PLATE, "fl_on_start");
+#ifdef PORT
+                if (sPortGridCostume[CS_N] > 0) { /* (the costume chosen on the Mod Fighters grid) */
+                    CS_SIDE->colorPlate = sPortGridCostume[CS_N];
+                }
+                sPortGridCostume[CS_N] = 0;
+#endif
                 gCharSel->colorCount[CS_N] = ChrTbl_WrapCostume(CS_SIDE->chara, &CS_SIDE->colorPlate);
                 CS_SIDE->state = CHARSEL_ST_ITEMSET;
                 Snd_PlaySe(1, 1);
@@ -1769,7 +1898,7 @@ void CharSel_Input(s32 *running) {
                         for (;;) {
                             n = Rand_Range(gCharSel->masterCount[CS_N]);
                             id = gCharSel->cells[CS_N][n].id;
-                            if (id < MCHR_RANDOM) {
+                            if (PORT_IN_POOL(id)) {
                                 chara = id;
                                 break;
                             }
@@ -1782,7 +1911,7 @@ void CharSel_Input(s32 *running) {
                         CS_SIDE->picked = CS_SIDE->chip[CS_SIDE->col];
                         n = CS_SIDE->col + CS_SIDE->row * 7;
                     }
-                    if (CS_SIDE->customPlate != 0) {
+                    if (CS_SIDE->customPlate != 0 && PORT_SAVE_CELL(n)) {
                         CS_SIDE->items = CSSAVE->custom[n].set[CS_SIDE->customPlate - 1];
                     } else {
                         memset(&CS_SIDE->items, 0, 0x10);
@@ -1864,6 +1993,12 @@ void CharSel_Input(s32 *running) {
                         CS_SIDE->customPlate = 0;
                     }
                     CharSel_ClipGoto(CS_N + 3, CS_N, CHARSEL_CLIP_CUSTOM_PLATE, "fl_on_start");
+#ifdef PORT
+                    if (sPortGridCostume[CS_N] > 0) { /* (the costume chosen on the Mod Fighters grid) */
+                        CS_SIDE->colorPlate = sPortGridCostume[CS_N];
+                    }
+                    sPortGridCostume[CS_N] = 0;
+#endif
                     gCharSel->colorCount[CS_N] = ChrTbl_WrapCostume(CS_SIDE->chara, &CS_SIDE->colorPlate);
                     CS_SIDE->state = CHARSEL_ST_ITEMSET;
                     Snd_PlaySe(1, 1);

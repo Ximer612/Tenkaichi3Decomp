@@ -981,6 +981,7 @@ void Port_SessionPoll(void) {
             state_load(&sBoot);
         } else {
             /* back from the session, at the blank it was asked for */
+            sOwnKept = 0;
             gPortResim = 0; /* (a session left before its start-up was over was still running without picture) */
             Gs_StateBack();
             Port_AdxResync();

@@ -401,7 +401,7 @@ typedef struct SoloSel {
     /* 0x0220 */ s32 gridCount;
     /* 0x0224 */ LChrCell *grid;
     /* 0x0228 */ s32 gridOutCount;
-    /* 0x022C */ LChrCell gridBuf[LCHR_CELL_MAX];
+    /* 0x022C */ LChrCell gridBuf[PORT_GRID_CELLS];
     /* 0x1960 */ s32 rows;           /* grid rows */
     /* 0x1964 */ s32 customCount;    /* item-set plates that can be chosen: 4, or 1 with SOLOSEL_NO_CUSTOM */
     /* 0x1968 */ s32 colorCount;     /* costumes of the character */

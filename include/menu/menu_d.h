@@ -171,7 +171,7 @@ typedef struct CharSel {
     /* 0x0558 */ s32 masterCount[CHARSEL_SIDES]; /* cells in the master grid */
     /* 0x0560 */ MChrCell *cells[CHARSEL_SIDES]; /* each side's grid (first the master list of section 42) */
     /* 0x0568 */ s32 cellCount[CHARSEL_SIDES];
-    /* 0x0570 */ MChrCell grid[CHARSEL_SIDES][MCHR_CELL_MAX];
+    /* 0x0570 */ MChrCell grid[CHARSEL_SIDES][PORT_GRID_CELLS];
     /* 0x33D8 */ s32 customCount[CHARSEL_SIDES];
     /* 0x33E0 */ MChrCell custom[CHARSEL_SIDES][MCHR_CUSTOM_MAX];
     /* 0x37D0 */ s32 rows[CHARSEL_SIDES];   /* rows of each side's grid */
@@ -212,8 +212,10 @@ typedef struct CharSel {
 #ifdef PORT
 /* The stage thumbnails are 0x39D..0x3C0 (one per stage of the disc); the loading screen files start right after,
    at 0x3C1. A stage added from outside the disc has an id past 0x23, so its thumbnail would fall on a loading
-   screen: it reuses an existing thumbnail instead. */
-#define CHARSEL_STAGE_FILE_ID(id) (CHARSEL_STAGE_FILE + ((id) < 0x24 ? (id) : (id) - 0x24))
+   screen: it has a file id of its own, 70100 + n past the start of the second archive, which the file layer
+   answers with the stage's own picture (`<name>.thumb` beside its `.unk`) or, without one, with the disc
+   thumbnail it used to reuse (port/src/plat_stages.c). */
+#define CHARSEL_STAGE_FILE_ID(id) ((id) < 0x24 ? CHARSEL_STAGE_FILE + (id) : 0xD48 + 70100 + ((id) - 0x24))
 #else
 #define CHARSEL_STAGE_FILE_ID(id) (CHARSEL_STAGE_FILE + (id))
 #endif
