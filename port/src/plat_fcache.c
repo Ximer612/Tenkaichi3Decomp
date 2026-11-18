@@ -5,19 +5,22 @@
  * restored with the game's state. The operating system's file objects are kept here, outside that state, found by
  * the file's relative path and opened when first needed; a read always says where in the file it reads. So a frame
  * that is run again after a restore (online play rewinds and replays frames) opens and reads the same files and
- * gets the same data, and nothing is opened or closed twice. A few dozen files stay open; the one unused longest
- * is closed when another is needed.
+ * gets the same data, and nothing is opened or closed twice. A few dozen files are kept; the one unused longest
+ * is dropped when another is needed. A file of up to MEM_MAX bytes is kept as a copy in memory and closed at once,
+ * so the host file is not held open: on Windows an open file cannot be replaced, and a mod tool may write the
+ * files of the character on screen. Larger files (the movies) stay open.
  * (Its variables must NOT be part of the saved state: port/tools/make_state.py leaves this file out.)
  */
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 extern void Port_StateTouch(void *p, unsigned long n); /* gs/state.c */
 
 extern const char *Port_FileRoot(void); /* plat_file.c: BT3_DATA or "gamedata" */
 
-enum { SLOTS = 32 };
-static struct { char rel[128]; FILE *fp; long size; unsigned long used; } sSlot[SLOTS];
+enum { SLOTS = 32, MEM_MAX = 16 << 20 };
+static struct { char rel[128]; FILE *fp; unsigned char *mem; long size; unsigned long used; } sSlot[SLOTS];
 static unsigned long sClock;
 static volatile int sLock;
 
@@ -52,13 +55,24 @@ FILE *Port_FileOpenHost(const char *rel, char *path, size_t n) {
     return fp;
 }
 
+#define SLOT_USED(i) (sSlot[i].fp != NULL || sSlot[i].mem != NULL)
+
+static void slot_drop(int i) {
+    if (sSlot[i].fp != NULL) {
+        fclose(sSlot[i].fp);
+        sSlot[i].fp = NULL;
+    }
+    free(sSlot[i].mem);
+    sSlot[i].mem = NULL;
+}
+
 static int slot_of(const char *rel) {
     char path[512];
     int i, old = 0;
     FILE *fp;
 
     for (i = 0; i < SLOTS; i++) {
-        if (sSlot[i].fp != NULL && strcmp(sSlot[i].rel, rel) == 0) {
+        if (SLOT_USED(i) && strcmp(sSlot[i].rel, rel) == 0) {
             sSlot[i].used = ++sClock;
             return i;
         }
@@ -69,7 +83,7 @@ static int slot_of(const char *rel) {
         return -1;
     }
     for (i = 0; i < SLOTS; i++) {
-        if (sSlot[i].fp == NULL) {
+        if (!SLOT_USED(i)) {
             old = i;
             break;
         }
@@ -77,13 +91,21 @@ static int slot_of(const char *rel) {
             old = i;
         }
     }
-    if (sSlot[old].fp != NULL) {
-        fclose(sSlot[old].fp);
-    }
+    slot_drop(old);
     snprintf(sSlot[old].rel, sizeof(sSlot[old].rel), "%s", rel);
     sSlot[old].fp = fp;
     fseek(fp, 0, SEEK_END);
     sSlot[old].size = ftell(fp);
+    if (sSlot[old].size >= 0 && sSlot[old].size <= MEM_MAX && (sSlot[old].mem = malloc((size_t)sSlot[old].size + 1)) != NULL) {
+        fseek(fp, 0, SEEK_SET);
+        if (fread(sSlot[old].mem, 1, (size_t)sSlot[old].size, fp) == (size_t)sSlot[old].size) {
+            fclose(fp); /* the copy is read from now on: the host file is free to be replaced */
+            sSlot[old].fp = NULL;
+        } else {
+            free(sSlot[old].mem);
+            sSlot[old].mem = NULL;
+        }
+    }
     {
         extern int Port_StageFits(const char *rel, long size); /* plat_stages.c */
         extern int Port_StageBufSize(void);
@@ -116,7 +138,13 @@ size_t Port_FileReadAt(const char *rel, long offset, void *buf, size_t bytes) {
     while (__sync_lock_test_and_set(&sLock, 1)) {
     }
     i = slot_of(rel);
-    if (i >= 0 && fseek(sSlot[i].fp, offset, SEEK_SET) == 0) {
+    if (i >= 0 && sSlot[i].mem != NULL) {
+        if (offset >= 0 && offset < sSlot[i].size) {
+            got = (size_t)(sSlot[i].size - offset) < bytes ? (size_t)(sSlot[i].size - offset) : bytes;
+            Port_StateTouch(buf, got); /* (gs/state.c: file data straight into watched memory) */
+            memcpy(buf, sSlot[i].mem + offset, got);
+        }
+    } else if (i >= 0 && fseek(sSlot[i].fp, offset, SEEK_SET) == 0) {
         Port_StateTouch(buf, bytes); /* (gs/state.c: file data straight into watched memory) */
         got = fread(buf, 1, bytes, sSlot[i].fp);
     }
