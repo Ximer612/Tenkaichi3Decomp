@@ -511,6 +511,12 @@ static int hle_program0(void) {
     memcpy(tag, &vu.mem[(top + 3) * 16], 16);
     count = (uint32_t)(tag[0] & 0x7FFF);
     if (count < 3 || top + 5 + count * 3 > 1024) {
+        static int said;
+        if (said < 8) { /* (what a mod's model has that the game's own do not: see GsVu1_Call) */
+            said++;
+            fprintf(stderr, "bt3: vu1: fighter batch not drawn: %u vertices at %u (base %u, offset %u), tag %016llx %016llx\n", count, top, vu.base, vu.ofst,
+                    (unsigned long long)tag[0], (unsigned long long)tag[1]);
+        }
         return 0;
     }
     for (layer = 0; layer < 2; layer++) {
@@ -771,11 +777,17 @@ void GsVu1_Call(int addr) {
         vu.pc = 15;
     }
     if (sProgSize == 127 && GsGpu_Enabled() && getenv("BT3_VU_INTERP") == NULL) {
-        /* MSCALF 0 only prepares derived constants (the shader derives them itself); every MSCNT is one batch */
-        if (addr >= 0 || hle_program0()) {
-            sHle++;
-            return;
+        /* MSCALF 0 only prepares derived constants (the shader derives them itself); every MSCNT is one batch.
+           A batch the shader path cannot take is left out. The interpreter is no way out here, unlike the programs
+           above: this program's setup was not run, so there is no place to go on from. Run from whatever vu.pc last
+           was, it went through the program's memory until its limit (some four million instructions, 40 ms in a
+           33 ms frame, every frame the model is seen) and kicked what it found to the GS: some mods' models have
+           such a batch, and with them every picture came late and the state of the drawing was anybody's. */
+        if (addr < 0) {
+            hle_program0();
         }
+        sHle++;
+        return;
     }
     run(addr < 0 ? vu.pc : (uint32_t)addr);
 }

@@ -348,7 +348,9 @@ s32 ChrView_IsVisible(void) {
    read whole whatever the buffer's size. In an online session the original's. */
 extern int Port_ModelSize(void);
 extern int Port_NetSession(void);
-#define ChrView_ModelSize() (Port_NetSession() ? CHRVIEW_MODEL_SIZE : Port_ModelSize())
+/* (the largest a model may be, PORT_MODEL_MAX of port/include/plat_charas.h, not the largest there is now: the Mod
+   Manager adds models while this viewer is open, and one larger than its buffer was read past the buffer's end) */
+#define ChrView_ModelSize() (Port_NetSession() ? CHRVIEW_MODEL_SIZE : 0x180000)
 #else
 #define ChrView_ModelSize() CHRVIEW_MODEL_SIZE
 #endif
