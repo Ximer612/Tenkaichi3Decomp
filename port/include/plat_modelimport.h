@@ -21,6 +21,10 @@ typedef struct {
     int rig;      /* 0 automatic joints for a file with no skeleton; 1 the old binding by distance to the fighter's rest pose */
 } MiOpts;
 
+/* On success, `why` ends with this and the names of the pictures the file names but that were not found (the
+   materials then have their colour only): "...; textures not found: Image_0, Image_2". */
+#define MI_MISSING "; textures not found: "
+
 /* 1 when the file's name ends as a model file this reads */
 int Mi_IsModel(const char *path);
 /* dir: a package folder that holds a fighter's m_1p.pak (the skeleton and tables to keep). That file is replaced.

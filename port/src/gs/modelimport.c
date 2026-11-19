@@ -51,6 +51,7 @@ typedef struct {
     Mat mat[MI_LOAD]; int nmat;
     const void *matKey[MI_LOAD];
     Joint *j; int nj; int paged;
+    char miss[160]; /* the pictures the file names but that were not found, ", " between them */
 } Scene;
 
 /* ---- small maths ---- */
@@ -209,6 +210,8 @@ static unsigned char *dds_decode(const unsigned char *d, size_t n, int *w, int *
     return o;
 }
 
+static const char *base_of(const char *path);
+
 /* the material's place; its picture from memory or a file, else its colour */
 static int scene_mat(Scene *s, const void *key, const unsigned char *mem, size_t memLen, const char *const *files, const float *col) {
     int i, c;
@@ -228,6 +231,7 @@ static int scene_mat(Scene *s, const void *key, const unsigned char *mem, size_t
         const char *dot = strrchr(files[i], '.');
         int e;
         if (files[i][0] == '\0') { continue; }
+        if (dot == NULL || dot < base_of(files[i])) { dot = files[i] + strlen(files[i]); } /* (a name with no extension, as Blender writes a packed picture: "Image_0") */
         m->px = stbi_load(files[i], &m->w, &m->h, &c, 4);
         if (m->px == NULL) {
             long dn = 0;
@@ -235,9 +239,16 @@ static int scene_mat(Scene *s, const void *key, const unsigned char *mem, size_t
             if (dd != NULL) { m->px = dds_decode(dd, (size_t)dn, &m->w, &m->h); }
             free(dd);
         }
-        for (e = 0; m->px == NULL && dot != NULL && e < 4; e++) { /* (a format this does not read, DDS: the same name as a picture it does) */
+        for (e = 0; m->px == NULL && e < 4; e++) { /* (a format this does not read, DDS, or no extension: the same name as a picture it does) */
             snprintf(alt, sizeof(alt), "%.*s%s", (int)(dot - files[i]), files[i], kExt[e]);
             m->px = stbi_load(alt, &m->w, &m->h, &c, 4);
+        }
+    }
+    if (m->px == NULL && files != NULL) { /* a picture named but found nowhere: the owner is told its name, to put it beside the model */
+        for (i = 0; files[i] != NULL && files[i][0] == '\0'; i++) {}
+        if (files[i] != NULL && strstr(s->miss, base_of(files[i])) == NULL) {
+            size_t n = strlen(s->miss);
+            snprintf(s->miss + n, sizeof(s->miss) - n, "%s%s", n > 0 ? ", " : "", base_of(files[i]));
         }
     }
     return s->nmat++;
@@ -2748,6 +2759,10 @@ int Mi_BuildEx(const char *file, const char *dir, int fitSkeleton, const MiOpts 
     if (ok) {
         snprintf(why, (size_t)whyLen, "%d triangles, %d textures, %s", s.nt, used,
                  autoRig ? "joints found from the shape" : how == 2 ? "bound by the file's skeleton" : "no skeleton in the file: bound by distance");
+        if (s.miss[0] != '\0') { /* (the manager's model page finds this mark and asks for the pictures) */
+            size_t n = strlen(why);
+            snprintf(why + n, (size_t)whyLen > n ? (size_t)whyLen - n : 0, MI_MISSING "%s", s.miss);
+        }
         if (found != NULL && foundLen > 0) {
             if (autoRig) {
                 snprintf(found, (size_t)foundLen, "%s  ARMS %d  SHOULDER %d  WAIST %d  NECK %d", orient, fit.arms, fit.shoulder, fit.waist, fit.neck);

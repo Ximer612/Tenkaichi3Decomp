@@ -1102,7 +1102,7 @@ static s32 sMoState;      /* 0 nothing built, 1 building, 2 built, 3 failed */
 static s32 sMoSeq;        /* the build the viewer shows */
 static s32 sMoChara;
 static s32 sMoWant;       /* the viewer is asked for the staging package */
-static char sMoFound[220], sMoWhy[110];
+static char sMoFound[220], sMoWhy[410], sMoMiss[170];
 static s32 sMoSeen[4];    /* what the last build chose: arms (degrees), shoulder, waist, neck; -1 unknown */
 
 s32 Mm3_IsModel(char *path) {
@@ -1134,6 +1134,29 @@ static s32 Mo_Num(char *s, char *key) { /* the number after `key` in s, -1 none 
     return -1;
 }
 
+/* The importer ends its report with "; textures not found: a, b" (MI_MISSING in plat_modelimport.h): those names go to
+   sMoMiss, for the page to ask the owner for the pictures. */
+static void Mo_SplitMissing(void) {
+    static const char mark[] = "; textures not found: ";
+    s32 i, k;
+
+    sMoMiss[0] = 0;
+    for (i = 0; sMoWhy[i] != 0; i++) {
+        for (k = 0; mark[k] != 0 && sMoWhy[i + k] == mark[k]; k++) {
+        }
+        if (mark[k] == 0) {
+            s32 n;
+
+            for (n = 0; sMoWhy[i + k + n] != 0 && n < 168; n++) {
+                sMoMiss[n] = sMoWhy[i + k + n];
+            }
+            sMoMiss[n] = 0;
+            sMoWhy[i] = 0;
+            return;
+        }
+    }
+}
+
 static void Mo_Start(void) {
     Port_MiSet(sMoBase, sMoFit);
     if (Port_MiTestStart(sMoPath)) {
@@ -1159,6 +1182,7 @@ void Mm3_OpenModel(char *path, s32 from) {
     sMoWant = 0;
     sMoFound[0] = 0;
     sMoWhy[0] = 0;
+    sMoMiss[0] = 0;
     for (n = 0; n < 4; n++) {
         sMoSeen[n] = -1;
     }
@@ -1261,7 +1285,7 @@ static void Mo_Leave(void) {
 
 static void Mo_Update(s32 live) {
     Pad *pad = &gPad[0];
-    static char info[330];
+    static char info[650];
     s32 st;
 
     sMm->wantKey = -1;
@@ -1274,7 +1298,7 @@ static void Mo_Update(s32 live) {
     Mm_SetModel(1130.0f, 650.0f, 430.0f);
     Mm_Prompt(0, sMoCur == MO_TEST ? "BUILD" : sMoCur == MO_MAKE ? "MAKE" : "CHOOSE");
     Mm_Prompt(2, "BACK");
-    st = Port_MiTestPoll(info, 330);
+    st = Port_MiTestPoll(info, 650);
     if (sMoState == 1 && st >= 2) {
         if (st == 2) {
             s32 i = 0;
@@ -1291,11 +1315,12 @@ static void Mo_Update(s32 live) {
                     sMoFound[k] = info[k];
                 }
                 sMoFound[k] = 0;
-                for (k = 0; info[i] != 0 && k < 108; k++) {
+                for (k = 0; info[i] != 0 && k < 408; k++) {
                     i++;
                     sMoWhy[k] = info[i];
                 }
                 sMoWhy[k] = 0;
+                Mo_SplitMissing();
             }
             sMoSeen[0] = Mo_Num(sMoFound, "ARMS");
             sMoSeen[1] = Mo_Num(sMoFound, "SHOULDER");
@@ -1315,7 +1340,7 @@ static void Mo_Update(s32 live) {
             {
                 s32 k;
 
-                for (k = 0; info[k] != 0 && k < 108; k++) {
+                for (k = 0; info[k] != 0 && k < 408; k++) {
                     sMoWhy[k] = info[k];
                 }
                 sMoWhy[k] = 0;
@@ -1428,10 +1453,16 @@ static void Mo_Draw(void) {
             Mx_TextA(806.0f, y0 + 15.0f, val, 22.0f, 470.0f, k == sMoCur ? MX_WHITE : MX_LAV, 2, 0x80);
         }
     }
-    sprintf(sLine, "%s", sMoState == 1 || sMoDirty ? "BUILDING THE TEST..." : sMoState == 2 ? sMoFound : sMoState == 3 ? "THE TEST FAILED" : "");
-    Mx_Say(450.0f, 664.0f, sLine, 19.0f, 780.0f, MX_CYAN, 1);
-    sprintf(sLine, "%s", sMoState == 3 ? sMoWhy : sMoState == 2 ? sMoWhy : "L2 / R2 turn the model, Square turns it by itself again. Left / right change a choice");
-    Mx_Say(450.0f, 690.0f, sLine, 19.0f, 780.0f, MX_WHITE, 1);
+    if (sMoState == 2 && !sMoDirty && sMoMiss[0] != 0) { /* the file names pictures that are not there: ask for them */
+        sprintf(sLine, "TEXTURES NOT FOUND: %.150s", sMoMiss);
+        Mx_Say(450.0f, 664.0f, sLine, 19.0f, 780.0f, MX_GOLD, 1);
+        Mx_Say(450.0f, 690.0f, "Put them beside the model (PNG, JPG, TGA or BMP, same name), then BUILD AGAIN", 19.0f, 780.0f, MX_WHITE, 1);
+    } else {
+        sprintf(sLine, "%s", sMoState == 1 || sMoDirty ? "BUILDING THE TEST..." : sMoState == 2 ? sMoFound : sMoState == 3 ? "THE TEST FAILED" : "");
+        Mx_Say(450.0f, 664.0f, sLine, 19.0f, 780.0f, MX_CYAN, 1);
+        sprintf(sLine, "%s", sMoState == 3 ? sMoWhy : sMoState == 2 ? sMoWhy : "L2 / R2 turn the model, Square turns it by itself again. Left / right change a choice");
+        Mx_Say(450.0f, 690.0f, sLine, 19.0f, 780.0f, MX_WHITE, 1);
+    }
     if (!sMoWant || sMoState == 3) {
         Mx_Window(900.0f, 250.0f, 1340.0f, 450.0f);
         Mx_Text(1120.0f, 310.0f, sMoState == 3 ? "NO MODEL" : "BUILDING", 30.0f, 380.0f, MX_GOLD, 1);

@@ -3308,14 +3308,14 @@ static void mi_opts(MiOpts *o) {
  * base fighter's own model is kept beside it, so each new build starts from the original. */
 static SDL_Thread *sMiTThread;
 static SDL_AtomicInt sMiTState; /* 0 none, 1 works, 2 done, 3 failed */
-static char sMiTPath[512], sMiTInfo[320];
+static char sMiTPath[512], sMiTInfo[640];
 static int sMiTBase, sMiTFit, sMiTHave = -1;
 static MiOpts sMiTOpts;
 
 static int sMiTSeq; /* each build goes into a folder of its own: the viewer keeps the last one's files open */
 
 static int mi_test_work(void *unused) {
-    char root[300], stage[420], base[440], folder[460], path[500], why[200], found[200], man[200];
+    char root[300], stage[420], base[440], folder[460], path[500], why[400], found[200], man[200];
     int ok = 0, k;
     (void)unused;
     sMiTInfo[0] = '\0';
@@ -3362,9 +3362,9 @@ static int mi_test_work(void *unused) {
         snprintf(man, sizeof(man), "format=1\nname=Model test\nbase=%d\n", sMiTBase);
         snprintf(path, sizeof(path), "%s/character.txt", folder);
         put_file(path, (const unsigned char *)man, (long)strlen(man));
-        snprintf(sMiTInfo, sizeof(sMiTInfo), "%.200s|%.100s", found, why);
+        snprintf(sMiTInfo, sizeof(sMiTInfo), "%.200s|%.400s", found, why);
     } else {
-        snprintf(sMiTInfo, sizeof(sMiTInfo), "%.200s", why);
+        snprintf(sMiTInfo, sizeof(sMiTInfo), "%.400s", why);
     }
     SDL_SetAtomicInt(&sMiTState, ok ? 2 : 3);
     return 0;
@@ -3437,7 +3437,7 @@ void Port_MiTestEnd(void) {
 
 /* A package made of the base fighter's files, with its first costume's model made again from the file. */
 static void model_import(const char *root) {
-    char stage[420], folder[440], path[500], name[64], title[64], man[700], why[200], disc[48] = "";
+    char stage[420], folder[440], path[500], name[64], title[64], man[900], why[400], disc[48] = "";
     const char *b = base_of(sImpPath), *dot = strrchr(b, '.');
     int k;
 
