@@ -1189,15 +1189,31 @@ void BtlRes_CommitReload(void) {
    reserves 0xCE000; a character from outside the disc can be larger (seen: 964 KB), and a file larger than the
    buffer is read past its end. The three buffers are as large as the largest model there is to load, among the
    added characters and in the data folder itself (a disc whose characters were replaced: seen, 1.15 MB), up to
-   1.5 MB (Port_ModelSize, port/src/plat_charas.c). With nothing larger than the disc's, and in an online session
+   8 MB (Port_ModelSize, port/src/plat_charas.c). With nothing larger than the disc's, and in an online session
    (where both games must be the same in every byte), they are the original's. */
 extern int Port_ModelSize(void);
 extern int Port_NetSession(void);
 static s32 BtlRes_ModelSize(void) {
     return Port_NetSession() ? BTL_RES_MODEL_SIZE : Port_ModelSize();
 }
+/* A model buffer: one larger than 1.5 MB (a model imported whole, up to 8 MB) does not fit the game's heap beside a
+   battle's other blocks and comes from the port's memory, as a large stage's does (battle_load.c). Heap_Free knows
+   such a block. Also the viewer's (view_a_d.c). */
+void *BtlRes_ModelAlloc(s32 size) {
+    extern unsigned Port_GameBigAlloc(int size);
+    void *buf = NULL;
+
+    if (size > 0x180000) {
+        buf = (void *)Port_GameBigAlloc(size);
+    }
+    if (buf == NULL) {
+        buf = Heap_Alloc(size, 0x40, 0, HEAP_ANY);
+    }
+    return buf;
+}
 #else
 #define BtlRes_ModelSize() BTL_RES_MODEL_SIZE
+#define BtlRes_ModelAlloc(size) Heap_Alloc(size, 0x40, 0, HEAP_ANY)
 #endif
 
 void BtlRes_Init(s32 prealloc) {
@@ -1211,7 +1227,7 @@ void BtlRes_Init(s32 prealloc) {
     res->prealloc = prealloc;
     if (prealloc != 0) {
         for (i = 0; i < 3; i++) {
-            res->spare[i].buf = Heap_Alloc(BtlRes_ModelSize(), 0x40, 0, HEAP_ANY);
+            res->spare[i].buf = BtlRes_ModelAlloc(BtlRes_ModelSize());
             res->spare[i].size = 0;
             res->spare[i].id = -1;
             res->spare[i].orig = res->spare[i].buf;

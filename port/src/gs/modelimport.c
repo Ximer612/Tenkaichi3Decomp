@@ -34,11 +34,12 @@
 #define STBI_NO_PSD
 #include "../../third_party/stb/stb_image.h"
 
-#define MODEL_MAX 0x180000L /* the game's model buffer */
+#define MI_GS_BLOCKS 0x780  /* GS blocks of the fighters' texture area (0x3480..0x3C00, BtlObjMdl_BindFiles); disc fighters use 778 at most.
+                               ponytail: effects take blocks from 0x2B00 up with no upper check, so a model that fills this area
+                               may meet a large effect's textures; measure EftVram's high mark if that is ever seen */
 #define MI_LOAD 64          /* materials read from a file, before they are packed into pages */
 #define MI_MATS 12          /* a texture has one of 16 alpha slots; the face and spare ones keep theirs */
 #define MI_STRIP 36         /* vertices in a batch (the game's own models: 40 at most) */
-#define MI_TRIS 7000        /* ponytail: triangle budget before the size check; a larger model is thinned */
 #define NODES 256
 
 typedef float V3[3];
@@ -2393,7 +2394,8 @@ typedef struct { uint32_t tex0lo, tex0hi; } TexRef; /* TEX0 of a material's batc
 
 /* The texture file (section 12): the materials' textures, then the base fighter's face texture (the game puts the
    current expression there; no mesh uses it now) and its shading ramps. The header's texture fields in hdr. */
-static int tex_build(const Scene *s, const unsigned char *d, long dn, const unsigned char *mdl, Buf *out, TexRef *ref, unsigned char *hdr, int used, int dither) {
+static int tex_build(const Scene *s, const unsigned char *d, long dn, const unsigned char *mdl, Buf *out, TexRef *ref, unsigned char *hdr, int used, int dither, int texSize) {
+    static const int kTexSide[4] = {0, 64, 128, 256};
     uint32_t dcount, dent;
     int face = mdl[0x4C], clutFirst = mdl[0x50], clutCount = mdl[0x51], keep[64], nkeep = 0, total, i, e, side;
     long tbp = 0, cbp = 0;
@@ -2406,7 +2408,16 @@ static int tex_build(const Scene *s, const unsigned char *d, long dn, const unsi
     if (face < (int)dcount) { keep[nkeep++] = face; }
     for (i = clutFirst; i < clutFirst + clutCount && i < (int)dcount; i++) { keep[nkeep++] = i; }
     total = used + nkeep;
-    side = used <= 3 ? 256 : 128;
+    side = texSize > 0 && texSize < 4 ? kTexSide[texSize] : used <= 3 ? 256 : 128;
+    for (;;) { /* the owner's size, halved while the textures, the face and the ramps overflow the fighters' area */
+        long need = (long)clutCount * 4 + (face < (int)dcount ? (long)rd32(d + dent + face * 0x40 + 0x10) : 0);
+        for (i = 0; i < s->nmat; i++) if (s->mat[i].used) {
+            int sd = s->mat[i].px != NULL ? (s->paged ? s->mat[i].w : side) : 64;
+            need += (long)sd * sd / 512;
+        }
+        if (need <= MI_GS_BLOCKS || side <= 64) { break; }
+        side /= 2;
+    }
     buf_add(out, 0x20 + (long)total * 0x40);
     for (i = 0, e = 0; i < s->nmat; i++) {
         unsigned char pal[16][3], clut[64], *rgb, *idx, *sw, *cover;
@@ -2526,7 +2537,7 @@ static void batch_put(Buf *o, const Scene *s, const Rig *r, const int *strip, in
 
 /* Section 3 again: the base fighter's node records with the new meshes. */
 static int mesh_build(const Scene *s, const Skel *k, const Rig *r, const TexRef *ref, const unsigned char *d, long dn, const unsigned char *hdr, int fitSkeleton,
-                      Buf *out) {
+                      Buf *out, int *tooBig) {
     int *part = malloc(sizeof(int) * (size_t)s->nt), *list = malloc(sizeof(int) * 3 * (size_t)s->nt);
     Edge *edges = malloc(sizeof(Edge) * 3 * (size_t)s->nt);
     unsigned char *usedT = malloc((size_t)s->nt);
@@ -2599,6 +2610,7 @@ static int mesh_build(const Scene *s, const Skel *k, const Rig *r, const TexRef 
             if (verts > 0) {
                 buf_w(&ch, 0x17000000);
                 while (ch.n % 16 != 0) { buf_w(&ch, 0); }
+                if (ch.n / 16 - 1 > 0xFFFF) { *tooBig = 1; } /* (a DMA tag counts 65,535 quadwords: about 21,000 vertices on one bone) */
                 wr32(ch.b, 0x60000000u | (uint32_t)(ch.n / 16 - 1));
                 wr32(buf_add(&ch, 16), 0x70000000);
                 chain = ch.n;
@@ -2674,8 +2686,9 @@ int Mi_BuildEx(const char *file, const char *dir, int fitSkeleton, const MiOpts 
     Rig r;
     char path[720], tmp[730];
     unsigned char *d, *out = NULL, hdr[0x60];
-    long dn, outLen = 0;
-    int ok, budget = MI_TRIS, how = 0, i, used = 0, tries;
+    long dn, outLen = 0, modelMax;
+    int ok, budget, how = 0, i, used = 0, tries, nj0 = 0;
+    Joint *j0 = NULL;
     FILE *f;
 
     memset(&s, 0, sizeof(s));
@@ -2683,6 +2696,11 @@ int Mi_BuildEx(const char *file, const char *dir, int fitSkeleton, const MiOpts 
     memset(&none, 0, sizeof(none));
     memset(&fit, 0, sizeof(fit));
     if (o == NULL) { o = &none; }
+    {
+        static const int kTris[9] = MI_TRI_STEPS;
+        budget = kTris[o->tris > 0 && o->tris < 9 ? o->tris : 0];
+        modelMax = o->target == 1 ? MI_PS2_MAX : MI_PC_MAX;
+    }
     if (whyLen > 0) { why[0] = '\0'; }
     if (found != NULL && foundLen > 0) { found[0] = '\0'; }
     snprintf(path, sizeof(path), "%s/m_1p.pak", dir);
@@ -2706,10 +2724,20 @@ int Mi_BuildEx(const char *file, const char *dir, int fitSkeleton, const MiOpts 
         scene_atlas(&s);
         scene_merge(&s, key_exact, 0, 0, 32);
         scene_orient(&s, o, orient, sizeof(orient));
+        j0 = malloc(sizeof(Joint) * (size_t)(s.nj + 1));
+        memcpy(j0, s.j, sizeof(Joint) * (size_t)(s.nj + 1));
+        nj0 = s.nj;
     }
-    for (tries = 0; ok && tries < 8; tries++) { /* thinner until it fits the game's buffer */
+    for (tries = 0; ok && tries < 30; tries++) { /* thinner until it fits the target's buffer */
         Buf mesh = {0}, tex = {0};
         TexRef ref[MI_MATS];
+        int tooBig = 0;
+        if (tries > 0) { /* the file's own joints again: automatic joints of the last try would pass for a skeleton of the file */
+            free(s.j);
+            s.j = malloc(sizeof(Joint) * (size_t)(nj0 + 1));
+            memcpy(s.j, j0, sizeof(Joint) * (size_t)(nj0 + 1));
+            s.nj = nj0;
+        }
         scene_thin(&s, budget);
         how = rig_make(&s, &k, fitSkeleton, &r);
         autoRig = 0;
@@ -2728,8 +2756,8 @@ int Mi_BuildEx(const char *file, const char *dir, int fitSkeleton, const MiOpts 
         for (i = 0, used = 0; i < s.nmat; i++) { used += s.mat[i].used; }
         memset(ref, 0, sizeof(ref));
         memcpy(hdr, d + sec_at(d, dn, 3), sizeof(hdr));
-        ok = tex_build(&s, d + sec_at(d, dn, 12), sec_at(d, dn, 13) - sec_at(d, dn, 12), d + sec_at(d, dn, 3), &tex, ref, hdr, used, o->tex) &&
-             mesh_build(&s, &k, &r, ref, d + sec_at(d, dn, 3), sec_at(d, dn, 4) - sec_at(d, dn, 3), hdr, fitSkeleton && !autoRig && how == 2, &mesh);
+        ok = tex_build(&s, d + sec_at(d, dn, 12), sec_at(d, dn, 13) - sec_at(d, dn, 12), d + sec_at(d, dn, 3), &tex, ref, hdr, used, o->tex, o->texSize) &&
+             mesh_build(&s, &k, &r, ref, d + sec_at(d, dn, 3), sec_at(d, dn, 4) - sec_at(d, dn, 3), hdr, fitSkeleton && !autoRig && how == 2, &mesh, &tooBig);
         if (!ok) {
             snprintf(why, (size_t)whyLen, "The base fighter's model has no textures this can use");
         } else {
@@ -2739,11 +2767,13 @@ int Mi_BuildEx(const char *file, const char *dir, int fitSkeleton, const MiOpts 
         free(mesh.b); free(tex.b);
         free(r.pos); free(r.nrm); free(r.bone); free(r.w);
         memset(&r, 0, sizeof(r));
-        if (!ok || outLen <= MODEL_MAX) { break; }
-        budget = budget * 3 / 4;
+        if (getenv("BT3_MODEL_LOG") != NULL) { fprintf(stderr, "bt3: model import: try %d: %d triangles, %ld bytes%s\n", tries, s.nt, outLen, tooBig ? ", a bone over the DMA limit" : ""); }
+        if (!ok || (outLen <= modelMax && !tooBig)) { break; }
+        outLen = tooBig ? modelMax + 1 : outLen;
+        budget = (budget < s.nt ? budget : s.nt) * 3 / 4;
     }
-    if (ok && outLen > MODEL_MAX) {
-        snprintf(why, (size_t)whyLen, "The model is too large for the game even when thinned");
+    if (ok && outLen > modelMax) {
+        snprintf(why, (size_t)whyLen, "The model is too large for the %s even when thinned", o->target == 1 ? "PS2" : "game");
         ok = 0;
     }
     if (ok) {
@@ -2772,7 +2802,7 @@ int Mi_BuildEx(const char *file, const char *dir, int fitSkeleton, const MiOpts 
         }
         fprintf(stderr, "bt3: model import: %s: %s, %ld bytes\n", file, why, outLen);
     }
-    free(out); free(d);
+    free(out); free(d); free(j0);
     scene_free(&s);
     return ok;
 }
@@ -2818,6 +2848,7 @@ int main(int argc, char **argv) {
         if (strncmp(argv[a2], "up=", 3) == 0) { o.up = v; } else if (strncmp(argv[a2], "turn=", 5) == 0) { o.facing = v; } else if (strncmp(argv[a2], "mirror=", 7) == 0) { o.mirror = v; }
         else if (strncmp(argv[a2], "size=", 5) == 0) { o.size = v; } else if (strncmp(argv[a2], "arms=", 5) == 0) { o.arms = v; } else if (strncmp(argv[a2], "shoulder=", 9) == 0) { o.shoulder = v; }
         else if (strncmp(argv[a2], "waist=", 6) == 0) { o.waist = v; } else if (strncmp(argv[a2], "neck=", 5) == 0) { o.neck = v; } else if (strncmp(argv[a2], "tex=", 4) == 0) { o.tex = v; } else if (strncmp(argv[a2], "rig=", 4) == 0) { o.rig = v; }
+        else if (strncmp(argv[a2], "target=", 7) == 0) { o.target = v; } else if (strncmp(argv[a2], "tris=", 5) == 0) { o.tris = v; } else if (strncmp(argv[a2], "texsize=", 8) == 0) { o.texSize = v; }
     }
     if (!Mi_BuildEx(argv[2], argv[1], argc > 3 && atoi(argv[3]), &o, why, sizeof(why), found, sizeof(found))) { printf("FAILED: %s\n", why); return 1; }
     printf("ok: %s\n  %s\n", why, found);

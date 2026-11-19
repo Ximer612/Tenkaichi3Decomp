@@ -2741,7 +2741,7 @@ static double sInterpCamNow[3], sInterpCamWas[3]; /* where the camera stands, th
 static double sInterpSceneWas[16];                /* the scenery's screen matrix of the previous picture */
 static int sInterpHaveCam;
 static uint16_t sInterpKind[MAX_VU_UNIFORMS], sInterpPrevKind[MAX_VU_UNIFORMS]; /* which vertex program and layer each block is drawn with */
-static uint16_t sInterpBucket2[4096], sInterpChain2[MAX_VU_UNIFORMS];
+static uint32_t sInterpBucket2[4096], sInterpChain2[MAX_VU_UNIFORMS];
 static float sInterpCamMove; /* GS pixels the camera alone moved the scenery in view this tick (the middle value) */
 static float sInterpRep[MAX_VU_UNIFORMS][3]; /* the first vertex of each block's mesh (model space) */
 /* The camera's change of this picture (interp_build): previous clip position = sInterpD * this clip position, for
@@ -2877,10 +2877,10 @@ static int interp_inverse(const float *m, float *o) {
 /* Fills sInterpBlend for the frame just recorded; 0 = no in-between picture for this one.
    Each block of this picture is paired with the block of the previous picture that draws the same mesh; of several
    that do (a piece of scenery used more than once) the one whose matrices are nearest. */
-static uint16_t sInterpBucket[4096];
-static uint16_t sInterpChain[MAX_VU_UNIFORMS];
+static uint32_t sInterpBucket[4096];
+static uint32_t sInterpChain[MAX_VU_UNIFORMS];
 static uint8_t sInterpUsed[MAX_VU_UNIFORMS];
-static int16_t sInterpPair[MAX_VU_UNIFORMS]; /* the previous picture's block each of this picture's was paired with, -1 none */
+static int32_t sInterpPair[MAX_VU_UNIFORMS]; /* the previous picture's block each of this picture's was paired with, -1 none */
 
 /* A point of the block's mesh (model space) in clip space: screen matrix * bone * (point - pivot). (A real point of
    the mesh, not the pivot or the origin: for scenery and for the sky's dome those can be beside or behind the eye,
@@ -3068,7 +3068,7 @@ static int interp_build_view(float t, int first) {
     for (i = sInterpPrevCount; i-- > 0;) { /* (backwards: each chain lists its blocks in the order of the list) */
         uint32_t b = sInterpPrevSig[i] * 2654435761u >> 20;
         sInterpChain[i] = sInterpBucket[b];
-        sInterpBucket[b] = (uint16_t)i;
+        sInterpBucket[b] = (uint32_t)i;
     }
     /* 1. Each block's partner: the block of the previous picture that draws the same mesh. */
     for (i = 0; i < gsVuUniCount; i++) {
@@ -3077,14 +3077,14 @@ static int interp_build_view(float t, int first) {
         const float *cf = (const float *)c;
         float bestDist = 0.0f, bestDist2 = 0.0f;
         int k, best = -1;
-        uint16_t j;
+        uint32_t j;
 
         sInterpBlend[i] = *c;
         sInterpPair[i] = -1;
         if (sInterpSig[i] == 0) {
             continue;
         }
-        for (j = sInterpBucket[sInterpSig[i] * 2654435761u >> 20]; j != 0xFFFF; j = sInterpChain[j]) {
+        for (j = sInterpBucket[sInterpSig[i] * 2654435761u >> 20]; j != 0xFFFFFFFFu; j = sInterpChain[j]) {
             /* (a shadow's strips are several blocks with one fighter's matrices, and their number changes with
                the ground: each takes the nearest of the previous picture, used before or not) */
             if (sInterpPrevSig[j] == sInterpSig[i] && sInterpPrevBlkView[j] == sInterpView && (!sInterpUsed[j] || sInterpSig[i] == 0x53484457u)) {
@@ -3108,7 +3108,7 @@ static int interp_build_view(float t, int first) {
         }
         if (best >= 0) {
             sInterpUsed[best] = 1;
-            sInterpPair[i] = (int16_t)best;
+            sInterpPair[i] = (int32_t)best;
         }
     }
     /* 1b. A second chance for a block without a partner. What a piece of scenery draws changes with what the camera
@@ -3128,7 +3128,7 @@ static int interp_build_view(float t, int first) {
             }
             h = h * 2654435761u >> 20;
             sInterpChain2[i] = sInterpBucket2[h];
-            sInterpBucket2[h] = (uint16_t)i;
+            sInterpBucket2[h] = (uint32_t)i;
         }
         for (i = 0; i < gsVuUniCount; i++) {
         if (sInterpBlkView[i] != sInterpView) { continue; } /* (one view at a time) */
@@ -3136,7 +3136,7 @@ static int interp_build_view(float t, int first) {
             const uint32_t *w = (const uint32_t *)c->boneA;
             const float *cf = (const float *)c;
             uint32_t h = sInterpKind[i], k2, j2;
-            uint16_t j;
+            uint32_t j;
             float bestDist = 0.0f, mag = 0.0f;
             int best = -1;
 
@@ -3147,7 +3147,7 @@ static int interp_build_view(float t, int first) {
             for (k2 = 0; k2 < 40; k2++) {
                 h = (h ^ w[k2]) * 16777619u;
             }
-            for (j = sInterpBucket2[h * 2654435761u >> 20]; j != 0xFFFF; j = sInterpChain2[j]) {
+            for (j = sInterpBucket2[h * 2654435761u >> 20]; j != 0xFFFFFFFFu; j = sInterpChain2[j]) {
                 if (sInterpPrevKind[j] == sInterpKind[i] && sInterpPrevBlkView[j] == sInterpView && memcmp(sInterpPrev[j].boneA, c->boneA, 40 * sizeof(float)) == 0) {
                     best = j;
                     break;
@@ -3186,7 +3186,7 @@ static int interp_build_view(float t, int first) {
             }
             if (best >= 0) {
                 sInterpUsed[best] = 1;
-                sInterpPair[i] = (int16_t)best;
+                sInterpPair[i] = (int32_t)best;
             }
         }
     }

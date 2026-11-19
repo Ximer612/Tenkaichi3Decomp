@@ -17,11 +17,11 @@ extern int gsScale;
 #define GS_H 1024
 
 #define MAX_VERTS (1 << 20)
-#define MAX_DRAWS (1 << 16)
+#define MAX_DRAWS (1 << 17) /* two fighters imported whole (84,000 triangles: 21,000 batches each, drawn more than once) passed 65,536 */
 #define MAX_TARGETS 24
-#define MAX_VU_VERTS (1 << 19)
-#define MAX_VU_IDX (1 << 20)
-#define MAX_VU_UNIFORMS 8192
+#define MAX_VU_VERTS (1 << 20)
+#define MAX_VU_IDX (1 << 21)
+#define MAX_VU_UNIFORMS (1 << 17) /* one per VU draw that cannot be merged: an imported model of 40,000 triangles has 11,000 batches (8,192 dropped the rest of it) */
 #define MAX_TEX 8192
 #define TEX_BUCKETS 32768 /* a power of two, four times MAX_TEX */
 #define MAX_CLUTS 64

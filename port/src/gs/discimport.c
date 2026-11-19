@@ -33,7 +33,7 @@
 #endif
 
 #define SECTOR 2048
-#define MODEL_MAX 1572864L
+#define MODEL_MAX 0x800000L /* PORT_MODEL_MAX */
 #define CHIP_MAX 5504
 
 static uint32_t rd16(const unsigned char *b) { return (uint32_t)b[0] | (uint32_t)b[1] << 8; }

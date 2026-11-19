@@ -699,7 +699,7 @@ static Chara *scan(const char *root, const char *name, const Chara *owner) {
         if (c->replaces == -1 && k < 4 && c->file[k][0] != '\0') {
             struct stat st; /* (an added character's costume: without it the character is left out, as before) */
             if (stat(c->file[k], &st) == 0 && st.st_size > PORT_MODEL_MAX) {
-                note(c, "%s is %ld bytes, more than the 1.5 MB a model may have; the character is left out", strrchr(c->file[k], '/') + 1,
+                note(c, "%s is %ld bytes, more than the 8 MB a model may have; the character is left out", strrchr(c->file[k], '/') + 1,
                      (long)st.st_size);
                 return NULL;
             }
@@ -1487,7 +1487,7 @@ int Port_ModelSize(void) {
         }
         size = (int)((most + 0xFFF) & ~0xFFFL);
         if (over > 0) {
-            fprintf(stderr, "bt3: %d model files of the game data are larger than the 1.5 MB a model may have\n", over);
+            fprintf(stderr, "bt3: %d model files of the game data are larger than the 8 MB a model may have\n", over);
         }
         if (size > 0xCE000) {
             fprintf(stderr, "bt3: the fight's model buffers are %d KB (the largest model there is to load)\n", size / 1024);

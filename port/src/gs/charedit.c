@@ -16,7 +16,7 @@
 #include <sys/stat.h>
 #include "../../include/plat_charedit.h"
 
-#define MODEL_MAX 1572864L
+#define MODEL_MAX 0x800000L /* PORT_MODEL_MAX */
 #define ANM_MAX 1443840L
 #define EFF_MAX 845824L
 #define FIRST_TABLE 18

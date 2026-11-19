@@ -1090,9 +1090,11 @@ static void Ms_Draw(void) {
    arms' angle, the heights of shoulder, waist and neck, the textures, the rig), the model built from them at the right
    in the viewer. It is built again when a choice is left alone for a moment, so the page can be worked until the model
    stands as it should; "Make the fighter" adds it as a mod. 0 on a choice = decided from the file. */
-enum { MO_BASE, MO_FIT, MO_UP, MO_TURN, MO_MIRROR, MO_SIZE, MO_ARMS, MO_SHO, MO_WAIST, MO_NECK, MO_TEX, MO_RIG, MO_TEST, MO_MAKE, MO_ROWS };
-/* Port_MiOpt: 0 up, 1 facing, 2 mirror, 3 size, 4 arms, 5 shoulder, 6 waist, 7 neck, 8 textures, 9 rig */
-static const s32 sMoOptOf[MO_ROWS] = {-1, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, -1, -1};
+enum { MO_BASE, MO_FIT, MO_UP, MO_TURN, MO_MIRROR, MO_SIZE, MO_ARMS, MO_SHO, MO_WAIST, MO_NECK, MO_TEX, MO_RIG, MO_TARGET, MO_TRIS, MO_TEXSZ, MO_TEST, MO_MAKE, MO_ROWS };
+/* Port_MiOpt: 0 up, 1 facing, 2 mirror, 3 size, 4 arms, 5 shoulder, 6 waist, 7 neck, 8 textures, 9 rig, 10 target (this
+   game or a PS2 disc), 11 triangles (MI_TRI_STEPS of plat_modelimport.h; 8 all), 12 texture size */
+static const s32 sMoOptOf[MO_ROWS] = {-1, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, -1, -1};
+#define MO_OPTS 13
 
 static char sMoPath[512];
 static s32 sMoCur, sMoBase, sMoFit, sMoGo, sMoBack, sMoFrom;
@@ -1175,7 +1177,7 @@ void Mm3_OpenModel(char *path, s32 from) {
     sMoCur = MO_UP;
     sMoFrom = from;
     sMoBack = sMm->mode;
-    for (n = 0; n < 10; n++) {
+    for (n = 0; n < MO_OPTS; n++) {
         Port_MiOpt(n, 0);
     }
     sMoState = 0;
@@ -1214,6 +1216,21 @@ static void Mo_Value(s32 row, char *out) {
     case MO_SIZE:
         sprintf(out, "%d%%", o > 0 ? o : 100);
         break;
+    case MO_TARGET:
+        sprintf(out, "%s", o ? "PS2 DISC (SMALL)" : "THIS GAME (UP TO 8 MB)");
+        break;
+    case MO_TRIS: {
+        static const char *const tris[9] = {"AUTO (7,000)", "2,000", "4,000", "7,000", "10,000", "15,000", "25,000", "40,000", "ALL (AS THE FILE)"};
+
+        sprintf(out, "%s", tris[o < 0 || o > 8 ? 0 : o]);
+        break;
+    }
+    case MO_TEXSZ: {
+        static const char *const side[4] = {"AUTO", "64 X 64", "128 X 128", "256 X 256 (BEST)"};
+
+        sprintf(out, "%s", side[o < 0 || o > 3 ? 0 : o]);
+        break;
+    }
     case MO_ARMS:
         if (o > 0) {
             sprintf(out, "%d DEG", (o - 1) * 5);
@@ -1256,6 +1273,15 @@ static s32 Mo_Step(s32 row, s32 dir) {
     case MO_TEX:
     case MO_RIG:
         o ^= 1;
+        break;
+    case MO_TARGET:
+        o ^= 1;
+        break;
+    case MO_TRIS:
+        o = (o + dir + 9) % 9;
+        break;
+    case MO_TEXSZ:
+        o = (o + dir + 4) % 4;
         break;
     case MO_SIZE:
         o = (o > 0 ? o : 100) + dir * 5;
@@ -1423,7 +1449,7 @@ static void Mo_Draw(void) {
     s32 k;
     s32 n = 0;
     s32 from = 0;
-    static const char *const names[MO_ROWS] = {"BASE FIGHTER", "FIT", "UP", "TURN", "MIRROR", "SIZE", "ARMS", "SHOULDERS", "WAIST", "NECK", "TEXTURES", "RIG", "BUILD AGAIN", "MAKE THE FIGHTER"};
+    static const char *const names[MO_ROWS] = {"BASE FIGHTER", "FIT", "UP", "TURN", "MIRROR", "SIZE", "ARMS", "SHOULDERS", "WAIST", "NECK", "TEXTURES", "RIG", "FOR", "TRIANGLES", "TEXTURE SIZE", "BUILD AGAIN", "MAKE THE FIGHTER"};
 
     while (sMoPath[n] != 0) { /* the file's name without its folders */
         if (sMoPath[n] == '/' || sMoPath[n] == 0x5C) {
@@ -1435,11 +1461,11 @@ static void Mo_Draw(void) {
     sprintf(sLine, "%.50s", sMoPath + from);
     Mx_Text(450.0f, 168.0f, sLine, 27.0f, 760.0f, MX_GOLD, 1);
     for (k = 0; k < MO_ROWS; k++) {
-        f32 y0 = 190.0f + 33.0f * (f32)k;
+        f32 y0 = 186.0f + 27.0f * (f32)k;
         static char val[48];
 
-        Mx_Row(70.0f, y0, 830.0f, y0 + 30.0f, k == sMoCur, 0x80);
-        Mx_TextA(94.0f, y0 + 15.0f, (char *)names[k], 22.0f, 300.0f, k == sMoCur ? MX_WHITE : MX_LAV, 0, 0x80);
+        Mx_Row(70.0f, y0, 830.0f, y0 + 25.0f, k == sMoCur, 0x80);
+        Mx_TextA(94.0f, y0 + 12.5f, (char *)names[k], 20.0f, 300.0f, k == sMoCur ? MX_WHITE : MX_LAV, 0, 0x80);
         if (k == MO_BASE) {
             sprintf(val, "%.34s", Mm_RefName(sMoBase));
         } else if (k == MO_FIT) {
@@ -1450,7 +1476,7 @@ static void Mo_Draw(void) {
             val[0] = 0;
         }
         if (val[0] != 0) {
-            Mx_TextA(806.0f, y0 + 15.0f, val, 22.0f, 470.0f, k == sMoCur ? MX_WHITE : MX_LAV, 2, 0x80);
+            Mx_TextA(806.0f, y0 + 12.5f, val, 20.0f, 470.0f, k == sMoCur ? MX_WHITE : MX_LAV, 2, 0x80);
         }
     }
     if (sMoState == 2 && !sMoDirty && sMoMiss[0] != 0) { /* the file names pictures that are not there: ask for them */

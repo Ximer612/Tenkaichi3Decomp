@@ -1309,7 +1309,7 @@ static int ref_of_id(int id) {
 /* The forms as a model's table has them (entry 17 of the model file, its bytes 0x98..0xC5). */
 static int trans_of_file(const char *path, PortTrans *t) {
     long len = 0;
-    uint8_t *d = read_file(path, &len, 0x180000);
+    uint8_t *d = read_file(path, &len, 0x800000);
     uint32_t n, a, b;
     int k, j, ok = 0;
 
@@ -3286,20 +3286,21 @@ void Port_MiSet(s32 base, s32 fit) {
     sMiFit = fit;
 }
 
-/* the owner's other choices (MiOpts, in order): 0 up, 1 facing, 2 mirror, 3 size, 4 arms, 5 shoulder, 6 waist, 7 neck, 8 textures, 9 rig */
-static int sMiO[10];
+/* the owner's other choices (MiOpts, in order): 0 up, 1 facing, 2 mirror, 3 size, 4 arms, 5 shoulder, 6 waist, 7 neck, 8 textures, 9 rig, 10 target, 11 triangles, 12 texture size */
+static int sMiO[13];
 void Port_MiOpt(s32 which, s32 value) {
-    if (which >= 0 && which < 10) {
+    if (which >= 0 && which < 13) {
         sMiO[which] = value;
     }
 }
 s32 Port_MiOptGet(s32 which) {
-    return which >= 0 && which < 10 ? sMiO[which] : 0;
+    return which >= 0 && which < 13 ? sMiO[which] : 0;
 }
 static void mi_opts(MiOpts *o) {
     memset(o, 0, sizeof(*o));
     o->up = sMiO[0]; o->facing = sMiO[1]; o->mirror = sMiO[2]; o->size = sMiO[3]; o->arms = sMiO[4];
     o->shoulder = sMiO[5]; o->waist = sMiO[6]; o->neck = sMiO[7]; o->tex = sMiO[8]; o->rig = sMiO[9];
+    o->target = sMiO[10]; o->tris = sMiO[11]; o->texSize = sMiO[12];
 }
 
 /* ---- a test of the model, shown in the preview before anything is made ----

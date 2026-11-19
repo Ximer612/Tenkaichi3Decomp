@@ -86,7 +86,7 @@ extern s32 Port_ModImportAll(char *path); /* every character mod in a folder (or
 extern s32 Port_ModImportInfo(s32 *skipped); /* after an import: the first mod added (-1 none, -2 the library's own folder, -3 an archive not unpacked, -4 a 3D model not made); how many were in it already */
 extern s32 Port_MiIsModel(char *path);     /* a 3D model file (FBX, OBJ, glTF) that can be made into a fighter */
 extern void Port_MiSet(s32 base, s32 fit); /* for the next one: the disc fighter it builds on; 1 = the skeleton takes the mesh's proportions */
-extern void Port_MiOpt(s32 which, s32 value); /* the owner's choices for the next one (0 up, 1 facing, 2 mirror, 3 size, 4 arms, 5 shoulder, 6 waist, 7 neck, 8 textures, 9 rig); 0 = automatic */
+extern void Port_MiOpt(s32 which, s32 value); /* the owner's choices for the next one (0 up, 1 facing, 2 mirror, 3 size, 4 arms, 5 shoulder, 6 waist, 7 neck, 8 textures, 9 rig, 10 target, 11 triangles, 12 texture size); 0 = automatic */
 extern s32 Port_MiOptGet(s32 which);
 extern s32 Port_MiTestStart(char *path);        /* builds the model into a staging package to look at; 0 when one is still running */
 extern s32 Port_MiTestPoll(char *info, s32 max); /* 0 none, 1 working, 2 done (info: what was found, "|", what was made), 3 failed (why) */

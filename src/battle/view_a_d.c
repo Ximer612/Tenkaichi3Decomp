@@ -350,9 +350,13 @@ extern int Port_ModelSize(void);
 extern int Port_NetSession(void);
 /* (the largest a model may be, PORT_MODEL_MAX of port/include/plat_charas.h, not the largest there is now: the Mod
    Manager adds models while this viewer is open, and one larger than its buffer was read past the buffer's end) */
-#define ChrView_ModelSize() (Port_NetSession() ? CHRVIEW_MODEL_SIZE : 0x180000)
+#define ChrView_ModelSize() (Port_NetSession() ? CHRVIEW_MODEL_SIZE : 0x800000)
+/* (8 MB each from the port's memory, btl_obj.c: its pages are only taken as far as a model fills them) */
+extern void *BtlRes_ModelAlloc(s32 size);
+#define ChrView_ModelAlloc(size) BtlRes_ModelAlloc(size)
 #else
 #define ChrView_ModelSize() CHRVIEW_MODEL_SIZE
+#define ChrView_ModelAlloc(size) Heap_Alloc(size, 0x40, 0, HEAP_ANY)
 #endif
 
 /* Starts the viewer: two model buffers, the battle object, stage and scene modules, the backdrop, a fade in. */
@@ -365,7 +369,7 @@ void ChrView_Init(void) {
     memset(gChrView, 0, sizeof(ChrView));
     gChrView->anim = 7;
     for (i = 0; i < CHRVIEW_SLOT_COUNT; i++) {
-        gChrView->slot[i].file[0].buf = Heap_Alloc(ChrView_ModelSize(), 0x40, 0, HEAP_ANY);
+        gChrView->slot[i].file[0].buf = ChrView_ModelAlloc(ChrView_ModelSize());
         gChrView->slot[i].file[0].size = 0;
         gChrView->slot[i].file[0].id = -1;
         *(s32 *)gChrView->slot[i].file[0].buf = 0;
@@ -417,7 +421,7 @@ void ChrView_PortInitAsync(void) {
     memset(gChrView, 0, sizeof(ChrView));
     gChrView->anim = 7;
     for (i = 0; i < CHRVIEW_SLOT_COUNT; i++) {
-        gChrView->slot[i].file[0].buf = Heap_Alloc(ChrView_ModelSize(), 0x40, 0, HEAP_ANY);
+        gChrView->slot[i].file[0].buf = ChrView_ModelAlloc(ChrView_ModelSize());
         gChrView->slot[i].file[0].size = 0;
         gChrView->slot[i].file[0].id = -1;
         *(s32 *)gChrView->slot[i].file[0].buf = 0;
