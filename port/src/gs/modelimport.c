@@ -428,11 +428,11 @@ static int load_ufbx(const char *path, Scene *s, char *why, int whyLen) {
             uint32_t mi = m->face_material.count > f ? m->face_material.data[f] : 0;
             ufbx_material *mat = n->materials.count > mi ? n->materials.data[mi] : m->materials.count > mi ? m->materials.data[mi] : NULL;
             int at;
+            ufbx_texture *tex = NULL;
             {
                 float col[3] = {0.7f, 0.7f, 0.7f};
                 char f1[900] = "", f2[900] = "", f3[900] = "", f4[900] = "";
                 const char *files[6] = {NULL, NULL, NULL, NULL, NULL, NULL};
-                ufbx_texture *tex = NULL;
                 if (mat != NULL) {
                     ufbx_material_map *mm = mat->pbr.base_color.texture != NULL || mat->pbr.base_color.has_value ? &mat->pbr.base_color : &mat->fbx.diffuse_color;
                     tex = mm->texture;
@@ -492,6 +492,13 @@ static int load_ufbx(const char *path, Scene *s, char *why, int whyLen) {
                     }
                     if (m->vertex_uv.exists) {
                         ufbx_vec2 t = ufbx_get_vertex_vec2(&m->vertex_uv, ix);
+                        if (tex != NULL && tex->has_uv_transform && tex->uv_transform.scale.x != 0 && tex->uv_transform.scale.y != 0) {
+                            /* the texture's own placement: an FBX that Blender made from a glTF with quantized UVs keeps the
+                               scale here (seen: scale 1/16, translation 0, -15: its UVs lie in 0..1/16, 15/16..1).
+                               ponytail: scale and translation only; a rotated placement is not undone */
+                            t.x = t.x / tex->uv_transform.scale.x + tex->uv_transform.translation.x;
+                            t.y = t.y / tex->uv_transform.scale.y + tex->uv_transform.translation.y;
+                        }
                         v[c].uv[0] = (float)t.x;
                         v[c].uv[1] = 1.0f - (float)t.y;
                     }
