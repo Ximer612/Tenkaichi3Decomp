@@ -392,7 +392,18 @@ static int afs_open(FILE *f, const DFile *df, Afs *a) {
         return 0;
     }
     a->df = *df;
-    return dfile_read(f, df, 8, a->table, (size_t)a->count * 8);
+    if (!dfile_read(f, df, 8, a->table, (size_t)a->count * 8)) {
+        return 0;
+    }
+    /* Some mods (Goku-Verse) zero every offset but the first. Files are packed back to back on 0x800: rebuild them. */
+    for (uint32_t i = 1; i < a->count; i++) {
+        unsigned char *e = a->table + i * 8;
+        if (rd32(e) == 0) {
+            uint32_t o = (uint32_t)((rd32(e - 8) + (uint64_t)rd32(e - 4) + 0x7FF) & ~(uint64_t)0x7FF);
+            e[0] = (unsigned char)o, e[1] = (unsigned char)(o >> 8), e[2] = (unsigned char)(o >> 16), e[3] = (unsigned char)(o >> 24);
+        }
+    }
+    return 1;
 }
 
 /* the size of game file id (0 if there is none) */
